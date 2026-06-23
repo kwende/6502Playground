@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Playground.Client/Playground.Client.csproj" />
+  <Project Path="Playground.Workbench/Playground.Workbench.csproj" />
+</Solution>

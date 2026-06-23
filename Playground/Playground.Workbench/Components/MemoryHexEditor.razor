@@ -1,0 +1,468 @@
+<div class="memory-editor">
+    <div class="memory-toolbar">
+        <div>
+            <div class="memory-title-row">
+                <div class="panel-title">Memory</div>
+                <button type="button"
+                        class="icon-button"
+                        title="Import memory values"
+                        aria-label="Import memory values"
+                        @onclick="OpenImportPanel">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M16.9 3.8 20.2 7 8.5 18.7 4.9 19.2 5.4 15.6 16.9 3.8Z" />
+                        <path d="M14.8 5.9 18 9.1" />
+                    </svg>
+                </button>
+            </div>
+            <div class="memory-subtitle">$@FormatWord((ushort)PageStart) page</div>
+        </div>
+        <div class="memory-controls">
+            <button type="button" title="Previous page" @onclick="PreviousPage">-$100</button>
+            <label>
+                Page
+                <input class="hex-input page-input"
+                       maxlength="4"
+                       value="@FormatWord((ushort)PageStart)"
+                       @onchange="OnPageInputChanged" />
+            </label>
+            <button type="button" title="Next page" @onclick="NextPage">+$100</button>
+            <button type="button" title="Clear change marks" @onclick="ClearChangeMarks">Clear Marks</button>
+        </div>
+    </div>
+
+    @if (_isImportPanelOpen)
+    {
+        <div class="memory-import-panel" aria-label="Memory import">
+            <div class="memory-import-header">
+                <div class="panel-title">Import Memory</div>
+                <button type="button"
+                        class="icon-button"
+                        title="Close memory import"
+                        aria-label="Close memory import"
+                        @onclick="CloseImportPanel">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M6 6 18 18" />
+                        <path d="M18 6 6 18" />
+                    </svg>
+                </button>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_importError))
+            {
+                <div class="memory-import-error" role="alert">@_importError</div>
+            }
+
+            <textarea class="memory-import-input"
+                      aria-label="Memory values to import"
+                      @bind="_importText"
+                      @bind:event="oninput"></textarea>
+
+            <div class="memory-import-actions">
+                <button type="button" @onclick="CloseImportPanel">Cancel</button>
+                <button type="button" class="primary-button" @onclick="ImportMemoryValuesAsync">Import</button>
+            </div>
+        </div>
+    }
+
+    <div class="memory-surface"
+         tabindex="0"
+         role="textbox"
+         aria-multiline="true"
+         aria-label="Memory hex editor"
+         @onkeydown="OnHexSurfaceKeyDown"
+         @onkeydown:preventDefault="true">
+        <div class="memory-header" aria-hidden="true">
+            <span class="address-cell">Addr</span>
+            <div class="hex-byte-strip">
+                @for (var column = 0; column < 16; column++)
+                {
+                    <span class="column-label">@column.ToString("X1", CultureInfo.InvariantCulture)</span>
+                }
+            </div>
+            <span class="ascii-cell">ASCII</span>
+        </div>
+
+        @for (var row = 0; row < 16; row++)
+        {
+            var rowBase = (PageStart + (row * 16)) & 0xFFFF;
+            <div class="memory-row">
+                <span class="address-cell">$@FormatWord((ushort)rowBase)</span>
+                <div class="hex-byte-strip">
+                    @for (var column = 0; column < 16; column++)
+                    {
+                        var address = (rowBase + column) & 0xFFFF;
+                        <button type="button"
+                                class="@GetByteClass(address)"
+                                title="@GetCellTitle(address)"
+                                aria-label="@GetCellTitle(address)"
+                                @onclick="() => SelectAddress(address)">
+                            @GetByteText(address)
+                        </button>
+                    }
+                </div>
+                <span class="ascii-cell">@GetAsciiRow(rowBase)</span>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public MemoryImage Memory { get; set; } = default!;
+
+    [Parameter]
+    public int PageStart { get; set; }
+
+    [Parameter]
+    public EventCallback<int> PageStartChanged { get; set; }
+
+    [Parameter]
+    public ushort? ProgramStart { get; set; }
+
+    [Parameter]
+    public int ProgramLength { get; set; }
+
+    private int _selectedAddress = -1;
+    private string _pendingNibbleText = string.Empty;
+    private bool _isImportPanelOpen;
+    private string _importText = string.Empty;
+    private string _importError = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        PageStart = NormalizePageStart(PageStart);
+
+        if (_selectedAddress < 0 || !IsAddressInPage(_selectedAddress, PageStart))
+        {
+            _selectedAddress = PageStart;
+            _pendingNibbleText = string.Empty;
+        }
+    }
+
+    private Task PreviousPage() => SetPageStart(PageStart - 0x100);
+
+    private Task NextPage() => SetPageStart(PageStart + 0x100);
+
+    private Task ClearChangeMarks()
+    {
+        Memory.ClearChangeMarks();
+        return Task.CompletedTask;
+    }
+
+    private async Task OnPageInputChanged(ChangeEventArgs args)
+    {
+        if (TryParseWord(args.Value?.ToString(), out var address))
+        {
+            await SetPageStart(address);
+        }
+    }
+
+    private Task SetPageStart(int address)
+    {
+        PageStart = NormalizePageStart(address);
+        _selectedAddress = PageStart;
+        _pendingNibbleText = string.Empty;
+        return PageStartChanged.InvokeAsync(PageStart);
+    }
+
+    private void OpenImportPanel()
+    {
+        _isImportPanelOpen = true;
+        _importError = string.Empty;
+    }
+
+    private void CloseImportPanel()
+    {
+        _isImportPanelOpen = false;
+        _importError = string.Empty;
+    }
+
+    private async Task ImportMemoryValuesAsync()
+    {
+        if (!TryParseMemoryImport(_importText, out var entries))
+        {
+            _importError = "There was a parser error.";
+            return;
+        }
+
+        foreach (var entry in entries)
+        {
+            Memory.SetByte(entry.Address, entry.Value);
+        }
+
+        _isImportPanelOpen = false;
+        _importError = string.Empty;
+
+        if (entries.Count > 0)
+        {
+            await MoveSelectionToAsync(entries[0].Address);
+        }
+    }
+
+    private async Task OnHexSurfaceKeyDown(KeyboardEventArgs args)
+    {
+        if (TryGetHexNibble(args.Key, out var nibble))
+        {
+            await TypeHexNibbleAsync(nibble);
+            return;
+        }
+
+        switch (args.Key)
+        {
+            case "ArrowLeft":
+                await MoveSelectionAsync(-1);
+                break;
+            case "ArrowRight":
+                await MoveSelectionAsync(1);
+                break;
+            case "ArrowUp":
+                await MoveSelectionAsync(-16);
+                break;
+            case "ArrowDown":
+                await MoveSelectionAsync(16);
+                break;
+            case "PageUp":
+                await MoveSelectionAsync(-0x100);
+                break;
+            case "PageDown":
+                await MoveSelectionAsync(0x100);
+                break;
+            case "Home":
+                await MoveSelectionToAsync(_selectedAddress & 0xFFF0);
+                break;
+            case "End":
+                await MoveSelectionToAsync((_selectedAddress & 0xFFF0) + 0x0F);
+                break;
+            case "Tab":
+                await MoveSelectionAsync(args.ShiftKey ? -1 : 1);
+                break;
+            case "Backspace":
+            case "Delete":
+                ClearSelectedByte();
+                break;
+            case "Escape":
+                _pendingNibbleText = string.Empty;
+                break;
+        }
+    }
+
+    private async Task TypeHexNibbleAsync(string nibble)
+    {
+        if (_selectedAddress < 0)
+        {
+            _selectedAddress = PageStart;
+        }
+
+        if (_pendingNibbleText.Length == 0)
+        {
+            _pendingNibbleText = nibble;
+            return;
+        }
+
+        if (byte.TryParse(_pendingNibbleText + nibble, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value))
+        {
+            Memory.SetByte(_selectedAddress, value);
+        }
+
+        _pendingNibbleText = string.Empty;
+        await MoveSelectionAsync(1);
+    }
+
+    private async Task MoveSelectionAsync(int offset)
+    {
+        var nextAddress = (_selectedAddress + offset) & 0xFFFF;
+        await MoveSelectionToAsync(nextAddress);
+    }
+
+    private async Task MoveSelectionToAsync(int address)
+    {
+        _selectedAddress = address & 0xFFFF;
+        _pendingNibbleText = string.Empty;
+
+        var pageStart = NormalizePageStart(_selectedAddress);
+        if (pageStart != PageStart)
+        {
+            PageStart = pageStart;
+            await PageStartChanged.InvokeAsync(PageStart);
+        }
+    }
+
+    private void SelectAddress(int address)
+    {
+        _selectedAddress = address & 0xFFFF;
+        _pendingNibbleText = string.Empty;
+    }
+
+    private void ClearSelectedByte()
+    {
+        if (_selectedAddress >= 0)
+        {
+            Memory.SetByte(_selectedAddress, 0x00);
+            _pendingNibbleText = string.Empty;
+        }
+    }
+
+    private string GetByteClass(int address)
+    {
+        var classes = new List<string> { "byte-token" };
+
+        if (address == _selectedAddress)
+        {
+            classes.Add("selected-byte");
+        }
+
+        if (address == _selectedAddress && _pendingNibbleText.Length > 0)
+        {
+            classes.Add("editing-byte");
+        }
+
+        if (Memory.ChangedAddresses.Contains(address))
+        {
+            classes.Add("changed-byte");
+        }
+
+        if (IsProgramAddress(address))
+        {
+            classes.Add("program-byte");
+        }
+
+        return string.Join(" ", classes);
+    }
+
+    private string GetByteText(int address)
+    {
+        if (address == _selectedAddress && _pendingNibbleText.Length > 0)
+        {
+            return $"{_pendingNibbleText}_";
+        }
+
+        return FormatByte(Memory.GetByte(address));
+    }
+
+    private string GetCellTitle(int address) => $"${FormatWord((ushort)address)} = ${FormatByte(Memory.GetByte(address))}";
+
+    private bool IsProgramAddress(int address)
+    {
+        if (ProgramStart is null || ProgramLength <= 0)
+        {
+            return false;
+        }
+
+        var start = ProgramStart.Value;
+        var offset = (address - start) & 0xFFFF;
+        return offset >= 0 && offset < ProgramLength;
+    }
+
+    private string GetAsciiRow(int rowBase)
+    {
+        Span<char> chars = stackalloc char[16];
+        for (var column = 0; column < 16; column++)
+        {
+            var value = Memory.GetByte((rowBase + column) & 0xFFFF);
+            chars[column] = value is >= 0x20 and <= 0x7E ? (char)value : '.';
+        }
+
+        return new string(chars);
+    }
+
+    private static int NormalizePageStart(int address) => address & 0xFF00;
+
+    private static bool TryParseWord(string? text, out ushort value)
+    {
+        var normalized = NormalizeHexText(text);
+        return ushort.TryParse(normalized, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
+    }
+
+    private static bool TryParseByte(string? text, out byte value)
+    {
+        var normalized = NormalizeHexText(text);
+        return byte.TryParse(normalized, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
+    }
+
+    private static bool TryParseMemoryImport(string text, out List<MemoryImportEntry> entries)
+    {
+        entries = [];
+
+        foreach (var rawLine in text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = StripImportComment(rawLine).Trim();
+            if (line.Length == 0)
+            {
+                continue;
+            }
+
+            var parts = line
+                .Replace("=", " ", StringComparison.Ordinal)
+                .Replace(":", " ", StringComparison.Ordinal)
+                .Replace(",", " ", StringComparison.Ordinal)
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            if (parts.Length != 2 ||
+                !TryParseWord(parts[0], out var address) ||
+                !TryParseByte(parts[1], out var value))
+            {
+                entries.Clear();
+                return false;
+            }
+
+            entries.Add(new MemoryImportEntry(address, value));
+        }
+
+        return entries.Count > 0;
+    }
+
+    private static string StripImportComment(string line)
+    {
+        var semicolonIndex = line.IndexOf(';');
+        var slashIndex = line.IndexOf("//", StringComparison.Ordinal);
+        var commentIndex = semicolonIndex >= 0 && slashIndex >= 0
+            ? Math.Min(semicolonIndex, slashIndex)
+            : Math.Max(semicolonIndex, slashIndex);
+
+        return commentIndex >= 0 ? line[..commentIndex] : line;
+    }
+
+    private static string NormalizeHexText(string? text)
+    {
+        var normalized = (text ?? string.Empty).Trim();
+
+        if (normalized.StartsWith('$'))
+        {
+            normalized = normalized[1..];
+        }
+
+        if (normalized.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized[2..];
+        }
+
+        return normalized;
+    }
+
+    private static bool TryGetHexNibble(string key, out string nibble)
+    {
+        nibble = string.Empty;
+
+        if (key.Length != 1)
+        {
+            return false;
+        }
+
+        var value = char.ToUpperInvariant(key[0]);
+        if (value is >= '0' and <= '9' or >= 'A' and <= 'F')
+        {
+            nibble = value.ToString(CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsAddressInPage(int address, int pageStart) => ((address - pageStart) & 0xFFFF) <= 0xFF;
+
+    private static string FormatWord(ushort value) => value.ToString("X4", CultureInfo.InvariantCulture);
+
+    private static string FormatByte(byte value) => value.ToString("X2", CultureInfo.InvariantCulture);
+
+    private readonly record struct MemoryImportEntry(ushort Address, byte Value);
+}

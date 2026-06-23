@@ -1,0 +1,124 @@
+<div class="register-panel">
+    <div class="panel-title">Registers</div>
+
+    <div class="register-grid">
+        <label>
+            PC
+            <input class="hex-input word-input" maxlength="4" value="@FormatWord(State.ProgramCounter)" @onchange="OnProgramCounterChanged" />
+        </label>
+        <label>
+            A
+            <input class="hex-input byte-input" maxlength="2" value="@FormatByte(State.Accumulator)" @onchange="args => OnByteRegisterChanged(args, value => State.Accumulator = value)" />
+        </label>
+        <label>
+            X
+            <input class="hex-input byte-input" maxlength="2" value="@FormatByte(State.X)" @onchange="args => OnByteRegisterChanged(args, value => State.X = value)" />
+        </label>
+        <label>
+            Y
+            <input class="hex-input byte-input" maxlength="2" value="@FormatByte(State.Y)" @onchange="args => OnByteRegisterChanged(args, value => State.Y = value)" />
+        </label>
+        <label>
+            SP
+            <input class="hex-input byte-input" maxlength="2" value="@FormatByte(State.StackPointer)" @onchange="args => OnByteRegisterChanged(args, value => State.StackPointer = value)" />
+        </label>
+        <label>
+            P
+            <input class="hex-input byte-input" maxlength="2" value="@FormatByte(State.Status)" @onchange="args => OnByteRegisterChanged(args, value => State.Status = value)" />
+        </label>
+        <label>
+            Cycles
+            <input class="cycle-input" value="@State.CycleCount" @onchange="OnCycleCountChanged" />
+        </label>
+    </div>
+
+    <div class="flag-grid" aria-label="Status flags">
+        @foreach (var flag in OrderedFlags)
+        {
+            <label class="flag-toggle">
+                <input type="checkbox"
+                       checked="@State.GetFlag(flag.Flag)"
+                       @onchange="args => OnFlagChanged(flag.Flag, args)" />
+                <span>@flag.Label</span>
+            </label>
+        }
+    </div>
+</div>
+
+@code {
+    private static readonly IReadOnlyList<(string Label, Cpu6502Flag Flag)> OrderedFlags =
+    [
+        ("N", Cpu6502Flag.Negative),
+        ("V", Cpu6502Flag.Overflow),
+        ("B", Cpu6502Flag.Break),
+        ("D", Cpu6502Flag.Decimal),
+        ("I", Cpu6502Flag.InterruptDisable),
+        ("Z", Cpu6502Flag.Zero),
+        ("C", Cpu6502Flag.Carry)
+    ];
+
+    [Parameter, EditorRequired]
+    public Cpu6502State State { get; set; } = default!;
+
+    private void OnProgramCounterChanged(ChangeEventArgs args)
+    {
+        if (TryParseWord(args.Value?.ToString(), out var value))
+        {
+            State.ProgramCounter = value;
+        }
+    }
+
+    private void OnByteRegisterChanged(ChangeEventArgs args, Action<byte> setValue)
+    {
+        if (TryParseByte(args.Value?.ToString(), out var value))
+        {
+            setValue(value);
+        }
+    }
+
+    private void OnCycleCountChanged(ChangeEventArgs args)
+    {
+        if (ulong.TryParse(args.Value?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+        {
+            State.CycleCount = value;
+        }
+    }
+
+    private void OnFlagChanged(Cpu6502Flag flag, ChangeEventArgs args)
+    {
+        State.SetFlag(flag, args.Value is true);
+    }
+
+    private static bool TryParseWord(string? text, out ushort value)
+    {
+        var normalized = NormalizeHexText(text);
+        return ushort.TryParse(normalized, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
+    }
+
+    private static bool TryParseByte(string? text, out byte value)
+    {
+        var normalized = NormalizeHexText(text);
+        return byte.TryParse(normalized, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
+    }
+
+    private static string NormalizeHexText(string? text)
+    {
+        var normalized = (text ?? string.Empty).Trim();
+
+        if (normalized.StartsWith('$'))
+        {
+            normalized = normalized[1..];
+        }
+
+        if (normalized.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized[2..];
+        }
+
+        return normalized;
+    }
+
+    private static string FormatWord(ushort value) => value.ToString("X4", CultureInfo.InvariantCulture);
+
+    private static string FormatByte(byte value) => value.ToString("X2", CultureInfo.InvariantCulture);
+}

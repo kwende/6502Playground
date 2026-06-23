@@ -1,0 +1,88 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JsRuntime
+
+<div class="source-editor-host">
+    <div class="source-editor-container" @ref="_container"></div>
+</div>
+
+@code {
+    private const string ModulePath = "./_content/Playground.Workbench/toolchain/monaco/monaco-source-editor.js";
+
+    private ElementReference _container;
+    private DotNetObjectReference<MonacoSourceEditor>? _dotNetReference;
+    private IJSObjectReference? _module;
+    private string? _editorId;
+    private string? _lastValue;
+    private int? _lastActiveLineNumber;
+
+    [Parameter]
+    public string Value { get; set; } = string.Empty;
+
+    [Parameter]
+    public EventCallback<string> ValueChanged { get; set; }
+
+    [Parameter]
+    public int? ActiveLineNumber { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _module = await JsRuntime.InvokeAsync<IJSObjectReference>("import", ModulePath);
+            _dotNetReference = DotNetObjectReference.Create(this);
+            _editorId = await _module.InvokeAsync<string>("createEditor", _container, _dotNetReference, Value);
+            _lastValue = Value;
+            await SetActiveLineAsync(ActiveLineNumber);
+            return;
+        }
+
+        if (_module is null || _editorId is null)
+        {
+            return;
+        }
+
+        if (!string.Equals(Value, _lastValue, StringComparison.Ordinal))
+        {
+            await _module.InvokeVoidAsync("setValue", _editorId, Value);
+            _lastValue = Value;
+        }
+
+        if (ActiveLineNumber != _lastActiveLineNumber)
+        {
+            await SetActiveLineAsync(ActiveLineNumber);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnEditorTextChanged(string value)
+    {
+        _lastValue = value;
+        await ValueChanged.InvokeAsync(value);
+    }
+
+    private async Task SetActiveLineAsync(int? lineNumber)
+    {
+        if (_module is null || _editorId is null)
+        {
+            return;
+        }
+
+        _lastActiveLineNumber = lineNumber;
+        await _module.InvokeVoidAsync("setActiveLine", _editorId, lineNumber);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null && _editorId is not null)
+        {
+            await _module.InvokeVoidAsync("disposeEditor", _editorId);
+        }
+
+        if (_module is not null)
+        {
+            await _module.DisposeAsync();
+        }
+
+        _dotNetReference?.Dispose();
+    }
+}

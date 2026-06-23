@@ -1,0 +1,13 @@
+# Add these locations inside the existing www.ben-rush.net server block.
+# The deploy script publishes static Blazor WebAssembly assets here:
+# /var/www/ben-rush.net/6502/
+
+location = /6502 {
+    return 301 /6502/;
+}
+
+location /6502/ {
+    alias /var/www/ben-rush.net/6502/;
+    index index.html;
+    try_files $uri $uri/ /6502/index.html;
+}

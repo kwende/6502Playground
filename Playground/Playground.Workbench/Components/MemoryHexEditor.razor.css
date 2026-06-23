@@ -1,0 +1,241 @@
+.memory-editor {
+    padding: 12px;
+}
+
+.memory-toolbar {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: end;
+    margin-bottom: 10px;
+}
+
+.memory-title-row,
+.memory-import-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.memory-title-row .panel-title,
+.memory-import-header .panel-title {
+    margin-bottom: 0;
+}
+
+.icon-button {
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.icon-button svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.memory-subtitle {
+    color: #9ca995;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 0.85rem;
+}
+
+.memory-controls {
+    display: flex;
+    gap: 8px;
+    align-items: end;
+    flex-wrap: wrap;
+}
+
+.memory-controls label {
+    display: grid;
+    gap: 4px;
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    color: #aebaa6;
+}
+
+.page-input {
+    width: 5.5rem;
+}
+
+.memory-import-panel {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 10px;
+    padding: 10px;
+    border: 1px solid #343f32;
+    border-radius: 4px;
+    background: #101611;
+}
+
+.memory-import-header {
+    justify-content: space-between;
+}
+
+.memory-import-error {
+    color: #ff8f86;
+    font-size: 0.88rem;
+    font-weight: 600;
+}
+
+.memory-import-input {
+    min-height: 112px;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 8px;
+    border: 1px solid #3b4738;
+    border-radius: 4px;
+    resize: vertical;
+    outline: none;
+    background: #0f1410;
+    color: #edf5e9;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 0.9rem;
+    line-height: 1.45;
+}
+
+.memory-import-input:focus {
+    border-color: #6ab981;
+    box-shadow: 0 0 0 2px rgba(106, 185, 129, 0.18);
+}
+
+.memory-import-actions {
+    display: flex;
+    justify-content: end;
+    gap: 8px;
+}
+
+.memory-surface {
+    width: 100%;
+    overflow: auto;
+    border: 1px solid #343f32;
+    border-radius: 4px;
+    background: #0f1410;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 0.84rem;
+    line-height: 1.6;
+}
+
+.memory-surface:focus {
+    outline: 2px solid rgba(106, 185, 129, 0.28);
+    outline-offset: 2px;
+}
+
+.memory-header,
+.memory-row {
+    display: grid;
+    grid-template-columns: 5.5rem max-content 9rem;
+    align-items: center;
+    min-width: 760px;
+}
+
+.memory-header {
+    background: #222a22;
+    color: #c9d5c2;
+    font-weight: 700;
+}
+
+.memory-row {
+    border-top: 1px solid #202920;
+}
+
+.memory-row:hover {
+    background: #121a14;
+}
+
+.address-cell {
+    width: 5.5rem;
+    color: #aebaa6;
+    text-align: right;
+    padding: 2px 10px 2px 6px;
+    user-select: none;
+}
+
+.hex-byte-strip {
+    display: grid;
+    grid-template-columns: repeat(16, 2.25rem);
+    column-gap: 0.32rem;
+    align-items: center;
+    padding: 2px 8px;
+    white-space: nowrap;
+}
+
+.column-label {
+    display: inline-flex;
+    width: 2.25rem;
+    justify-content: center;
+    color: #b9c5b2;
+    user-select: none;
+}
+
+.ascii-cell {
+    width: 9rem;
+    color: #cbd6c4;
+    text-align: left;
+    padding: 2px 8px;
+    white-space: pre;
+    user-select: none;
+}
+
+.byte-token {
+    width: 2.25rem;
+    height: 1.5rem;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: #edf5e9;
+    text-align: center;
+    text-transform: uppercase;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: inherit;
+    line-height: 1.5rem;
+    cursor: text;
+}
+
+.byte-token:hover {
+    background: #202a20;
+}
+
+.byte-token:focus {
+    outline: none;
+}
+
+.selected-byte {
+    background: #17351f;
+    color: #ffffff;
+    box-shadow: inset 0 0 0 1px #6ab981;
+}
+
+.editing-byte {
+    background: #1f4328;
+}
+
+.changed-byte {
+    background: #4a1e1d;
+    color: #ffd9d4;
+}
+
+.changed-byte.selected-byte {
+    background: #5a2725;
+    box-shadow: inset 0 0 0 1px #e06d63;
+}
+
+.program-byte {
+    box-shadow: inset 0 -2px 0 #d3a94f;
+}
+
+.program-byte.selected-byte {
+    box-shadow:
+        inset 0 0 0 1px #6ab981,
+        inset 0 -2px 0 #d3a94f;
+}

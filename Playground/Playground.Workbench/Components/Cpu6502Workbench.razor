@@ -1,0 +1,699 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JsRuntime
+
+<main class="workbench">
+    <section class="workbench-editor" aria-label="Assembly source">
+        <div class="toolbar">
+            <div>
+                <h1>6502 Playground</h1>
+                <div class="subtle">Assemble into memory at $@FormatWord(_loadAddress), then run, single-step and inspect bytes / registers.</div>
+            </div>
+            <div class="toolbar-controls">
+                <label>
+                    Load
+                    <input class="hex-input word-input"
+                           value="@FormatWord(_loadAddress)"
+                           maxlength="4"
+                           @onchange="OnLoadAddressChanged" />
+                </label>
+                <button type="button" class="primary-button" disabled="@_isAssembling" @onclick="AssembleAndLoadAsync">
+                    @(_isAssembling ? "Assembling..." : "Assemble & Load")
+                </button>
+                <button type="button"
+                        class="toolbar-icon-button"
+                        title="Open CPU visualizer"
+                        aria-label="Open CPU visualizer"
+                        @onclick="OpenVisualizerAsync">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M4 7h16" />
+                        <path d="M4 12h16" />
+                        <path d="M4 17h16" />
+                        <path d="M8 4v16" />
+                        <path d="M16 4v16" />
+                        <circle cx="8" cy="12" r="2" />
+                        <circle cx="16" cy="7" r="2" />
+                        <circle cx="16" cy="17" r="2" />
+                    </svg>
+                </button>
+                <button type="button" @onclick="ResetMemoryAndRegistersAsync">
+                    Reset
+                </button>
+            </div>
+        </div>
+
+        <MonacoSourceEditor Value="@_source"
+                            ValueChanged="OnSourceTextChangedAsync"
+                            ActiveLineNumber="@_activeSourceLineNumber" />
+    </section>
+
+    <section class="workbench-state" aria-label="CPU state">
+        <RegisterPanel State="_registers" />
+
+        <div class="status-panel execution-panel">
+            <div class="panel-title">Execution</div>
+            <div class="execution-controls">
+                <button type="button" class="primary-button" disabled="@IsExecutionControlDisabled" @onclick="StepInstructionAsync">
+                    Step
+                </button>
+                <button type="button" disabled="@(_isAssembling || _isExecuting || _isRunning)" @onclick="RunAsync">
+                    Run
+                </button>
+                <button type="button" disabled="@(!_isRunning)" @onclick="PauseExecution">
+                    Pause
+                </button>
+            </div>
+            <dl>
+                <div>
+                    <dt>Status</dt>
+                    <dd>@_executionStatus</dd>
+                </div>
+                <div>
+                    <dt>Last</dt>
+                    <dd>@_lastExecutionSummary</dd>
+                </div>
+            </dl>
+        </div>
+
+        <div class="status-panel">
+            <div class="panel-title">Assembly</div>
+            <dl>
+                <div>
+                    <dt>Status</dt>
+                    <dd>@_assemblyStatus</dd>
+                </div>
+                <div>
+                    <dt>Output</dt>
+                    <dd>@_programLength byte(s)</dd>
+                </div>
+                <div>
+                    <dt>Range</dt>
+                    <dd>@GetProgramRangeText()</dd>
+                </div>
+            </dl>
+        </div>
+    </section>
+
+    <section class="memory-section" aria-label="Memory editor">
+        <MemoryHexEditor Memory="_memory"
+                         PageStart="_memoryPageStart"
+                         PageStartChanged="OnMemoryPageStartChanged"
+                         ProgramStart="_programStart"
+                         ProgramLength="_programLength" />
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(_diagnostics))
+    {
+        <section class="diagnostics" aria-label="Assembler diagnostics">
+            <div class="panel-title">Diagnostics</div>
+            <pre>@_diagnostics</pre>
+        </section>
+    }
+</main>
+
+@code {
+    private const ushort DefaultLoadAddress = 0x0600;
+    private const byte DefaultMemoryFill = 0x00;
+    private const int RunInstructionBudget = 64;
+    private const int MaxTicksPerInstruction = 64;
+    private const string VisualizerModulePath = "./_content/Playground.Workbench/toolchain/visualizer/cpu-visualizer-channel.js";
+
+    private readonly MemoryImage _memory = new(DefaultMemoryFill);
+    private readonly Cpu6502State _registers = new();
+    private readonly Dictionary<ushort, int> _sourceLineByAddress = [];
+
+    private Cc65AssemblerClient? _assembler;
+    private M6502CpuClient? _cpu;
+    private IJSObjectReference? _visualizerModule;
+    private ushort _loadAddress = DefaultLoadAddress;
+    private int _memoryPageStart = DefaultLoadAddress;
+    private ushort? _programStart;
+    private int _programLength;
+    private bool _isAssembling;
+    private bool _isExecuting;
+    private bool _isRunning;
+    private string _assemblyStatus = "Ready";
+    private string _executionStatus = "Ready";
+    private string _lastExecutionSummary = "-";
+    private string _diagnostics = string.Empty;
+    private int? _activeSourceLineNumber;
+    private int _visualizerSequence;
+
+    private string _source = """
+        .segment "CODE"
+
+        start:
+            lda #$2A
+            sta $0200
+            brk
+        """;
+
+    protected override void OnInitialized()
+    {
+        _assembler = new Cc65AssemblerClient(JsRuntime);
+        _cpu = new M6502CpuClient(JsRuntime);
+        ResetMemoryAndRegisters();
+    }
+
+    private bool IsExecutionControlDisabled => _isAssembling || _isExecuting || _isRunning;
+
+    private async Task AssembleAndLoadAsync()
+    {
+        if (_assembler is null)
+        {
+            return;
+        }
+
+        _isAssembling = true;
+        _assemblyStatus = "Running ca65/ld65";
+        _diagnostics = string.Empty;
+
+        try
+        {
+            var request = new Cc65AssemblyRequest
+            {
+                Source = _source,
+                LinkerConfig = BuildLinkerConfig(_loadAddress),
+                LoadAddress = _loadAddress,
+                Ca65Args = ["--cpu", "6502"],
+                Ld65Args = []
+            };
+
+            var result = await _assembler.AssembleAndLinkAsync(request);
+            _diagnostics = result.DiagnosticText;
+
+            if (!result.Success)
+            {
+                _assemblyStatus = result.Error ?? "Assembly failed";
+                ClearSourceLineMappings();
+                return;
+            }
+
+            LoadSourceLineMappings(result.SourceLineMappings);
+
+            var bytes = result.OutputBytes
+                .Select(value => (byte)(value & 0xFF))
+                .ToArray();
+
+            _memory.Load(_loadAddress, bytes);
+            _registers.ProgramCounter = _loadAddress;
+            _registers.CycleCount = 0;
+            _programStart = _loadAddress;
+            _programLength = bytes.Length;
+            _memoryPageStart = NormalizePageStart(_loadAddress);
+            _assemblyStatus = "Loaded";
+            _executionStatus = "Loaded";
+            _lastExecutionSummary = "-";
+            UpdateActiveSourceLine();
+            await PublishVisualizerStateAsync("Load", "Program loaded", _loadAddress, bytes.FirstOrDefault(), sync: true);
+        }
+        catch (Exception ex)
+        {
+            _assemblyStatus = "Assembly bridge error";
+            _diagnostics = ex.Message;
+            ClearSourceLineMappings();
+        }
+        finally
+        {
+            _isAssembling = false;
+        }
+    }
+
+    private void ResetMemoryAndRegisters()
+    {
+        _memory.Fill(DefaultMemoryFill);
+        _registers.Reset(_loadAddress);
+        _memoryPageStart = NormalizePageStart(_loadAddress);
+        _programStart = null;
+        _programLength = 0;
+        _assemblyStatus = "Ready";
+        _executionStatus = "Ready";
+        _lastExecutionSummary = "-";
+        _diagnostics = string.Empty;
+        _isRunning = false;
+        ClearSourceLineMappings();
+    }
+
+    private async Task ResetMemoryAndRegistersAsync()
+    {
+        ResetMemoryAndRegisters();
+        await PublishVisualizerStateAsync("Reset", "Memory and registers reset", _registers.ProgramCounter, _memory.GetByte(_registers.ProgramCounter), sync: true);
+    }
+
+    private async Task StepInstructionAsync()
+    {
+        if (_cpu is null || IsExecutionControlDisabled)
+        {
+            return;
+        }
+
+        _isExecuting = true;
+        _executionStatus = "Stepping";
+        var instructionAddress = _registers.ProgramCounter;
+        var opcode = _memory.GetByte(instructionAddress);
+
+        try
+        {
+            var result = await _cpu.StepInstructionAsync(BuildExecutionRequest(1));
+            ApplyExecutionResult(result);
+            await PublishVisualizerStateAsync("Step", $"Stepped ${FormatWord(instructionAddress)} opcode ${FormatByte(opcode)}", instructionAddress, opcode, result.MemoryChanges, opcode);
+        }
+        catch (Exception ex)
+        {
+            _executionStatus = "CPU bridge error";
+            _lastExecutionSummary = ex.Message;
+        }
+        finally
+        {
+            _isExecuting = false;
+        }
+    }
+
+    private async Task RunAsync()
+    {
+        if (_cpu is null || _isAssembling || _isExecuting || _isRunning)
+        {
+            return;
+        }
+
+        _isRunning = true;
+        _executionStatus = "Running";
+
+        try
+        {
+            while (_isRunning)
+            {
+                var instructionAddress = _registers.ProgramCounter;
+                var opcode = _memory.GetByte(instructionAddress);
+                var result = await _cpu.RunInstructionsAsync(BuildExecutionRequest(RunInstructionBudget));
+                ApplyExecutionResult(result);
+                await PublishVisualizerStateAsync("Run", $"Ran from ${FormatWord(instructionAddress)} opcode ${FormatByte(opcode)}", instructionAddress, opcode, result.MemoryChanges, opcode);
+
+                if (result.Status != Cpu6502ExecutionStatus.Ok || result.InstructionsExecuted == 0)
+                {
+                    _isRunning = false;
+                    break;
+                }
+
+                StateHasChanged();
+                await Task.Delay(1);
+            }
+        }
+        catch (Exception ex)
+        {
+            _executionStatus = "CPU bridge error";
+            _lastExecutionSummary = ex.Message;
+            _isRunning = false;
+        }
+    }
+
+    private void PauseExecution()
+    {
+        _isRunning = false;
+        _executionStatus = "Paused";
+    }
+
+    private Cpu6502ExecutionRequest BuildExecutionRequest(int instructionBudget)
+    {
+        return new Cpu6502ExecutionRequest
+        {
+            MemoryBytes = _memory.ToArray(),
+            Registers = new Cpu6502RegisterSnapshot
+            {
+                ProgramCounter = _registers.ProgramCounter,
+                Accumulator = _registers.Accumulator,
+                X = _registers.X,
+                Y = _registers.Y,
+                StackPointer = _registers.StackPointer,
+                Status = _registers.Status,
+                CycleCount = _registers.CycleCount
+            },
+            InstructionBudget = instructionBudget,
+            MaxTicksPerInstruction = MaxTicksPerInstruction
+        };
+    }
+
+    private void ApplyExecutionResult(Cpu6502ExecutionResult result)
+    {
+        _registers.ProgramCounter = result.Registers.ProgramCounter;
+        _registers.Accumulator = result.Registers.Accumulator;
+        _registers.X = result.Registers.X;
+        _registers.Y = result.Registers.Y;
+        _registers.StackPointer = result.Registers.StackPointer;
+        _registers.Status = result.Registers.Status;
+        _registers.CycleCount = result.Registers.CycleCount;
+
+        foreach (var change in result.MemoryChanges)
+        {
+            _memory.SetByte(change.Address, change.Value);
+        }
+
+        _executionStatus = result.Status switch
+        {
+            Cpu6502ExecutionStatus.Ok => "Ready",
+            Cpu6502ExecutionStatus.Break => "Break",
+            Cpu6502ExecutionStatus.TickLimit => "Tick limit",
+            _ => result.StatusText
+        };
+
+        var instructionText = result.InstructionsExecuted == 1 ? "instruction" : "instructions";
+        var cycleText = result.TicksExecuted == 1 ? "cycle" : "cycles";
+        _lastExecutionSummary = $"{result.InstructionsExecuted} {instructionText}, {result.TicksExecuted} {cycleText}";
+        UpdateActiveSourceLine();
+    }
+
+    private Task OnSourceTextChangedAsync(string value)
+    {
+        if (!string.Equals(_source, value, StringComparison.Ordinal))
+        {
+            _source = value;
+            ClearSourceLineMappings();
+            _assemblyStatus = "Source changed";
+            _executionStatus = "Ready";
+            _lastExecutionSummary = "-";
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void OnLoadAddressChanged(ChangeEventArgs args)
+    {
+        if (TryParseWord(args.Value?.ToString(), out var value))
+        {
+            _loadAddress = value;
+            _memoryPageStart = NormalizePageStart(value);
+            _registers.ProgramCounter = value;
+            ClearSourceLineMappings();
+        }
+    }
+
+    private Task OnMemoryPageStartChanged(int pageStart)
+    {
+        _memoryPageStart = NormalizePageStart(pageStart);
+        return Task.CompletedTask;
+    }
+
+    private async Task OpenVisualizerAsync()
+    {
+        try
+        {
+            var module = await GetVisualizerModuleAsync();
+            var opened = await module.InvokeAsync<bool>(
+                "openVisualizer",
+                BuildVisualizerMessage("Open", "Current CPU state", _registers.ProgramCounter, _memory.GetByte(_registers.ProgramCounter), sync: true));
+
+            if (!opened)
+            {
+                _executionStatus = "Visualizer blocked";
+            }
+        }
+        catch (Exception ex)
+        {
+            _executionStatus = "Visualizer error";
+            _lastExecutionSummary = ex.Message;
+        }
+    }
+
+    private async Task PublishVisualizerStateAsync(
+        string phase,
+        string summary,
+        ushort? busAddress = null,
+        byte? busData = null,
+        IEnumerable<Cpu6502MemoryChange>? memoryChanges = null,
+        byte? opcode = null,
+        bool sync = false)
+    {
+        if (_visualizerModule is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _visualizerModule.InvokeVoidAsync(
+                "postVisualizerMessage",
+                BuildVisualizerMessage(phase, summary, busAddress, busData, memoryChanges, opcode, sync));
+        }
+        catch
+        {
+            // The visualizer is optional; CPU work should keep running if the popup is closed or unavailable.
+        }
+    }
+
+    private async ValueTask<IJSObjectReference> GetVisualizerModuleAsync()
+    {
+        _visualizerModule ??= await JsRuntime.InvokeAsync<IJSObjectReference>("import", VisualizerModulePath);
+        return _visualizerModule;
+    }
+
+    private CpuVisualizerMessage BuildVisualizerMessage(
+        string phase,
+        string summary,
+        ushort? busAddress = null,
+        byte? busData = null,
+        IEnumerable<Cpu6502MemoryChange>? memoryChanges = null,
+        byte? opcode = null,
+        bool sync = false)
+    {
+        var changes = memoryChanges?
+            .Select(change => new CpuVisualizerMemoryChange
+            {
+                Address = change.Address,
+                Value = change.Value
+            })
+            .ToArray() ?? [];
+
+        var isWrite = changes.Length > 0;
+        var address = isWrite ? changes[0].Address : busAddress ?? _registers.ProgramCounter;
+        var data = isWrite ? changes[0].Value : busData ?? _memory.GetByte(address);
+
+        return new CpuVisualizerMessage
+        {
+            Sequence = ++_visualizerSequence,
+            Phase = phase,
+            Summary = summary,
+            Registers = new Cpu6502RegisterSnapshot
+            {
+                ProgramCounter = _registers.ProgramCounter,
+                Accumulator = _registers.Accumulator,
+                X = _registers.X,
+                Y = _registers.Y,
+                StackPointer = _registers.StackPointer,
+                Status = _registers.Status,
+                CycleCount = _registers.CycleCount
+            },
+            Bus = new CpuVisualizerBusSnapshot
+            {
+                Address = address,
+                Data = data,
+                IsWrite = isWrite,
+                Sync = sync,
+                Operation = isWrite ? "write" : "read"
+            },
+            MemoryChanges = changes,
+            ActiveUnits = GetActiveUnits(phase, opcode ?? data, isWrite, sync)
+        };
+    }
+
+    private string GetProgramRangeText()
+    {
+        if (_programStart is null || _programLength <= 0)
+        {
+            return "-";
+        }
+
+        var end = (_programStart.Value + _programLength - 1) & 0xFFFF;
+        return $"${FormatWord(_programStart.Value)}-${FormatWord((ushort)end)}";
+    }
+
+    private static string BuildLinkerConfig(ushort loadAddress)
+    {
+        var size = 0x10000 - loadAddress;
+        return $$"""
+            MEMORY {
+                CODE: start = ${{FormatWord(loadAddress)}}, size = ${{size.ToString("X", CultureInfo.InvariantCulture)}}, type = ro, file = %O;
+            }
+
+            SEGMENTS {
+                CODE: load = CODE, type = ro;
+            }
+            """;
+    }
+
+    private void LoadSourceLineMappings(IEnumerable<Cc65SourceLineMapping> mappings)
+    {
+        _sourceLineByAddress.Clear();
+
+        foreach (var mapping in mappings)
+        {
+            _sourceLineByAddress.TryAdd(mapping.Address, mapping.LineNumber);
+        }
+    }
+
+    private void ClearSourceLineMappings()
+    {
+        _sourceLineByAddress.Clear();
+        _activeSourceLineNumber = null;
+    }
+
+    private void UpdateActiveSourceLine()
+    {
+        _activeSourceLineNumber = _sourceLineByAddress.TryGetValue(_registers.ProgramCounter, out var lineNumber)
+            ? lineNumber
+            : null;
+    }
+
+    private static bool TryParseWord(string? text, out ushort value)
+    {
+        var normalized = NormalizeHexText(text);
+        return ushort.TryParse(normalized, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
+    }
+
+    private static string NormalizeHexText(string? text)
+    {
+        var normalized = (text ?? string.Empty).Trim();
+
+        if (normalized.StartsWith('$'))
+        {
+            normalized = normalized[1..];
+        }
+
+        if (normalized.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized[2..];
+        }
+
+        return normalized;
+    }
+
+    private static int NormalizePageStart(int address) => address & 0xFF00;
+
+    private static string FormatWord(ushort value) => value.ToString("X4", CultureInfo.InvariantCulture);
+
+    private static string FormatByte(byte value) => value.ToString("X2", CultureInfo.InvariantCulture);
+
+    private static string[] GetActiveUnits(string phase, byte opcode, bool isWrite, bool sync)
+    {
+        var units = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "pc",
+            "ir",
+            "decoder",
+            "addressBus",
+            "dataBus",
+            "controlBus",
+            "busInterface"
+        };
+
+        if (sync)
+        {
+            units.Add("ir");
+        }
+
+        if (isWrite)
+        {
+            units.Add("a");
+            units.Add("registers");
+            units.Add("memory");
+            units.Add("memoryBus");
+        }
+
+        if (phase.Equals("Reset", StringComparison.OrdinalIgnoreCase) ||
+            phase.Equals("Load", StringComparison.OrdinalIgnoreCase) ||
+            phase.Equals("Open", StringComparison.OrdinalIgnoreCase))
+        {
+            units.Add("registers");
+            units.Add("flags");
+            return [.. units];
+        }
+
+        AddOpcodeUnits(units, opcode);
+        return [.. units];
+    }
+
+    private static void AddOpcodeUnits(HashSet<string> units, byte opcode)
+    {
+        switch (opcode)
+        {
+            case 0xA9:
+            case 0xA5:
+            case 0xB5:
+            case 0xAD:
+            case 0xBD:
+            case 0xB9:
+            case 0xA1:
+            case 0xB1:
+                units.Add("a");
+                units.Add("registers");
+                units.Add("flags");
+                break;
+
+            case 0x8D:
+            case 0x85:
+            case 0x95:
+            case 0x9D:
+            case 0x99:
+            case 0x81:
+            case 0x91:
+                units.Add("a");
+                units.Add("memory");
+                units.Add("memoryBus");
+                break;
+
+            case 0x69:
+            case 0x65:
+            case 0x75:
+            case 0x6D:
+            case 0x7D:
+            case 0x79:
+            case 0x61:
+            case 0x71:
+            case 0xE9:
+            case 0xE5:
+            case 0xF5:
+            case 0xED:
+            case 0xFD:
+            case 0xF9:
+            case 0xE1:
+            case 0xF1:
+                units.Add("a");
+                units.Add("alu");
+                units.Add("aluBus");
+                units.Add("flags");
+                break;
+
+            case 0x18:
+            case 0x38:
+            case 0x58:
+            case 0x78:
+            case 0xB8:
+            case 0xD8:
+            case 0xF8:
+                units.Add("flags");
+                break;
+
+            case 0x60:
+                units.Add("registers");
+                units.Add("memory");
+                units.Add("memoryBus");
+                break;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_assembler is not null)
+        {
+            await _assembler.DisposeAsync();
+        }
+
+        if (_cpu is not null)
+        {
+            await _cpu.DisposeAsync();
+        }
+
+        if (_visualizerModule is not null)
+        {
+            await _visualizerModule.DisposeAsync();
+        }
+    }
+}

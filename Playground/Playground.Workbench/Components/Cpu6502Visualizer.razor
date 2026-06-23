@@ -1,0 +1,225 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JsRuntime
+
+<main class="visualizer-shell">
+    <header class="visualizer-header">
+        <div>
+            <h1>6502 Visualizer</h1>
+            <div class="visualizer-subtitle">@GetSubtitle()</div>
+        </div>
+        <div class="status-chip">@(_message?.Phase ?? "Waiting")</div>
+    </header>
+
+    <section class="visualizer-grid">
+        <div class="die-panel">
+            <svg class="cpu-die" viewBox="0 0 960 560" role="img" aria-label="6502 functional die visualizer">
+                <defs>
+                    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+                        <feGaussianBlur stdDeviation="5" result="blur" />
+                        <feMerge>
+                            <feMergeNode in="blur" />
+                            <feMergeNode in="SourceGraphic" />
+                        </feMerge>
+                    </filter>
+                    <linearGradient id="siliconGradient" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0" stop-color="#142019" />
+                        <stop offset="1" stop-color="#08100d" />
+                    </linearGradient>
+                </defs>
+
+                <rect class="die-background" x="24" y="24" width="912" height="512" rx="18" />
+                <rect class="die-inner" x="54" y="54" width="852" height="452" rx="10" />
+
+                <path class="@BusClass("addressBus")" d="M198 142 H432 V174 H648" />
+                <path class="@BusClass("dataBus")" d="M198 362 H430 V326 H648" />
+                <path class="@BusClass("controlBus")" d="M476 238 H648" />
+                <path class="@BusClass("aluBus")" d="M356 302 H498" />
+                <path class="@BusClass("registerBus")" d="M198 250 H300 V318 H498" />
+                <path class="@BusClass("memoryBus")" d="M766 194 V318" />
+
+                <g class="@BlockClass("pc")">
+                    <rect x="78" y="104" width="120" height="76" rx="6" />
+                    <text x="138" y="135">PC</text>
+                    <text class="value-text" x="138" y="160">$@FormatWord(_message?.Registers.ProgramCounter ?? 0)</text>
+                </g>
+
+                <g class="@BlockClass("ir")">
+                    <rect x="306" y="104" width="126" height="76" rx="6" />
+                    <text x="369" y="135">IR</text>
+                    <text class="value-text" x="369" y="160">$@FormatByte(_message?.Bus.Data ?? 0)</text>
+                </g>
+
+                <g class="@BlockClass("decoder")">
+                    <rect x="474" y="92" width="148" height="116" rx="6" />
+                    <text x="548" y="138">Decoder</text>
+                    <text class="small-text" x="548" y="164">@(_message?.Bus.Sync == true ? "SYNC" : "decode")</text>
+                </g>
+
+                <g class="@BlockClass("registers")">
+                    <rect x="78" y="218" width="120" height="188" rx="6" />
+                    <text x="138" y="250">Registers</text>
+                    <text class="small-text" x="138" y="280">A $@FormatByte(_message?.Registers.Accumulator ?? 0)</text>
+                    <text class="small-text" x="138" y="306">X $@FormatByte(_message?.Registers.X ?? 0)</text>
+                    <text class="small-text" x="138" y="332">Y $@FormatByte(_message?.Registers.Y ?? 0)</text>
+                    <text class="small-text" x="138" y="358">S $@FormatByte(_message?.Registers.StackPointer ?? 0)</text>
+                </g>
+
+                <g class="@BlockClass("a")">
+                    <rect x="248" y="250" width="108" height="76" rx="6" />
+                    <text x="302" y="281">A</text>
+                    <text class="value-text" x="302" y="306">$@FormatByte(_message?.Registers.Accumulator ?? 0)</text>
+                </g>
+
+                <g class="@BlockClass("alu")">
+                    <rect x="498" y="266" width="124" height="96" rx="6" />
+                    <text x="560" y="306">ALU</text>
+                    <text class="small-text" x="560" y="332">logic/add</text>
+                </g>
+
+                <g class="@BlockClass("flags")">
+                    <rect x="284" y="376" width="148" height="76" rx="6" />
+                    <text x="358" y="407">Flags</text>
+                    <text class="value-text" x="358" y="432">$@FormatByte(_message?.Registers.Status ?? 0)</text>
+                </g>
+
+                <g class="@BlockClass("busInterface")">
+                    <rect x="648" y="150" width="236" height="244" rx="8" />
+                    <text x="766" y="188">Bus Interface</text>
+                    <text class="small-text" x="766" y="226">ADDR $@FormatWord(_message?.Bus.Address ?? 0)</text>
+                    <text class="small-text" x="766" y="256">DATA $@FormatByte(_message?.Bus.Data ?? 0)</text>
+                    <text class="small-text" x="766" y="286">@((_message?.Bus.IsWrite == true) ? "WRITE" : "READ")</text>
+                </g>
+
+                <g class="@BlockClass("memory")">
+                    <rect x="648" y="420" width="236" height="62" rx="6" />
+                    <text x="766" y="458">Memory</text>
+                </g>
+
+                <g class="bus-label address-label">
+                    <rect x="438" y="156" width="126" height="34" rx="17" />
+                    <text x="501" y="179">$@FormatWord(_message?.Bus.Address ?? 0)</text>
+                </g>
+
+                <g class="bus-label data-label">
+                    <rect x="436" y="332" width="104" height="34" rx="17" />
+                    <text x="488" y="355">$@FormatByte(_message?.Bus.Data ?? 0)</text>
+                </g>
+            </svg>
+        </div>
+
+        <aside class="visualizer-side">
+            <section class="readout-panel">
+                <div class="panel-title">Bus</div>
+                <dl>
+                    <div><dt>Address</dt><dd>$@FormatWord(_message?.Bus.Address ?? 0)</dd></div>
+                    <div><dt>Data</dt><dd>$@FormatByte(_message?.Bus.Data ?? 0)</dd></div>
+                    <div><dt>Mode</dt><dd>@((_message?.Bus.IsWrite == true) ? "Write" : "Read")</dd></div>
+                    <div><dt>Sync</dt><dd>@((_message?.Bus.Sync == true) ? "Yes" : "No")</dd></div>
+                </dl>
+            </section>
+
+            <section class="readout-panel">
+                <div class="panel-title">Registers</div>
+                <dl>
+                    <div><dt>PC</dt><dd>$@FormatWord(_message?.Registers.ProgramCounter ?? 0)</dd></div>
+                    <div><dt>A</dt><dd>$@FormatByte(_message?.Registers.Accumulator ?? 0)</dd></div>
+                    <div><dt>X</dt><dd>$@FormatByte(_message?.Registers.X ?? 0)</dd></div>
+                    <div><dt>Y</dt><dd>$@FormatByte(_message?.Registers.Y ?? 0)</dd></div>
+                    <div><dt>P</dt><dd>$@FormatByte(_message?.Registers.Status ?? 0)</dd></div>
+                    <div><dt>Cycles</dt><dd>@(_message?.Registers.CycleCount ?? 0)</dd></div>
+                </dl>
+            </section>
+
+            <section class="readout-panel">
+                <div class="panel-title">Memory Writes</div>
+                @if (_message?.MemoryChanges.Length > 0)
+                {
+                    <ul class="write-list">
+                        @foreach (var change in _message.MemoryChanges.Take(8))
+                        {
+                            <li>$@FormatWord(change.Address) = $@FormatByte(change.Value)</li>
+                        }
+                    </ul>
+                }
+                else
+                {
+                    <div class="empty-text">None</div>
+                }
+            </section>
+        </aside>
+    </section>
+</main>
+
+@code {
+    private const string ModulePath = "./_content/Playground.Workbench/toolchain/visualizer/cpu-visualizer-channel.js";
+
+    private DotNetObjectReference<Cpu6502Visualizer>? _dotNetReference;
+    private IJSObjectReference? _module;
+    private int? _subscriptionId;
+    private CpuVisualizerMessage? _message;
+    private HashSet<string> _activeUnits = [];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _module = await JsRuntime.InvokeAsync<IJSObjectReference>("import", ModulePath);
+        _dotNetReference = DotNetObjectReference.Create(this);
+        _subscriptionId = await _module.InvokeAsync<int>("subscribe", _dotNetReference);
+    }
+
+    [JSInvokable]
+    public Task OnCpuVisualizerMessage(CpuVisualizerMessage message)
+    {
+        _message = message;
+        _activeUnits = message.ActiveUnits.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private string GetSubtitle()
+    {
+        if (_message is null)
+        {
+            return "Open from the playground to mirror CPU activity.";
+        }
+
+        return string.IsNullOrWhiteSpace(_message.Summary)
+            ? $"Update #{_message.Sequence}"
+            : _message.Summary;
+    }
+
+    private string BlockClass(string unit)
+    {
+        var activeClass = _activeUnits.Contains(unit) ? " active" : string.Empty;
+        return $"die-block {unit}{activeClass}";
+    }
+
+    private string BusClass(string unit)
+    {
+        var activeClass = _activeUnits.Contains(unit) ? " active" : string.Empty;
+        return $"die-bus {unit}{activeClass}";
+    }
+
+    private static string FormatWord(ushort value) => value.ToString("X4", CultureInfo.InvariantCulture);
+
+    private static string FormatByte(byte value) => value.ToString("X2", CultureInfo.InvariantCulture);
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null && _subscriptionId is not null)
+        {
+            await _module.InvokeVoidAsync("unsubscribe", _subscriptionId.Value);
+        }
+
+        if (_module is not null)
+        {
+            await _module.DisposeAsync();
+        }
+
+        _dotNetReference?.Dispose();
+    }
+}

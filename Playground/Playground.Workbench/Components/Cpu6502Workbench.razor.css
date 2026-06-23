@@ -1,0 +1,235 @@
+.workbench {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+    grid-template-rows: auto auto 1fr;
+    gap: 12px;
+    padding: 16px;
+    background: #0d100e;
+    color: #e6ede1;
+    font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+.workbench-editor,
+.workbench-state,
+.memory-section,
+.diagnostics {
+    border: 1px solid #3b4738;
+    border-radius: 6px;
+    background: #171c18;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+}
+
+.workbench-editor {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    display: flex;
+    flex-direction: column;
+    min-height: 420px;
+}
+
+.workbench-state {
+    grid-column: 2;
+    grid-row: 1;
+    display: grid;
+    gap: 12px;
+    padding: 12px;
+}
+
+.memory-section {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    overflow: auto;
+}
+
+.diagnostics {
+    grid-column: 2;
+    grid-row: 2;
+    min-height: 160px;
+    padding: 12px;
+}
+
+.toolbar {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px;
+    border-bottom: 1px solid #303a2e;
+}
+
+.toolbar h1 {
+    margin: 0;
+    font-size: 1.35rem;
+    line-height: 1.2;
+}
+
+.subtle {
+    color: #9ca995;
+    font-size: 0.9rem;
+}
+
+.toolbar-controls {
+    display: flex;
+    align-items: end;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.toolbar-controls label {
+    display: grid;
+    gap: 4px;
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    color: #aebaa6;
+}
+
+.toolbar-icon-button {
+    width: 34px;
+    min-width: 34px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.toolbar-icon-button svg {
+    width: 17px;
+    height: 17px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.hex-input {
+    font-family: Consolas, "Cascadia Mono", monospace;
+    text-transform: uppercase;
+}
+
+.word-input {
+    width: 5.5rem;
+}
+
+button,
+input,
+textarea {
+    font: inherit;
+}
+
+button {
+    min-height: 32px;
+    border: 1px solid #4c5a47;
+    border-radius: 4px;
+    background: #222922;
+    color: #e6ede1;
+    cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+    background: #2c352b;
+    border-color: #65745e;
+}
+
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+.primary-button {
+    border-color: #6ab981;
+    background: #38754e;
+    color: #f4fff6;
+}
+
+.primary-button:hover:not(:disabled) {
+    background: #42895d;
+}
+
+.source-editor {
+    flex: 1;
+    min-height: 340px;
+    padding: 12px;
+    border: 0;
+    resize: vertical;
+    outline: none;
+    background: #101411;
+    color: #edf5e9;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 0.95rem;
+    line-height: 1.45;
+    tab-size: 4;
+}
+
+.status-panel {
+    border-top: 1px solid #303a2e;
+    padding-top: 12px;
+}
+
+.execution-panel {
+    display: grid;
+    gap: 10px;
+}
+
+.execution-controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.execution-controls button {
+    min-width: 72px;
+}
+
+.panel-title {
+    margin-bottom: 8px;
+    color: #c9d5c2;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+dl {
+    margin: 0;
+    display: grid;
+    gap: 6px;
+}
+
+dl div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+dt {
+    color: #9ca995;
+}
+
+dd {
+    margin: 0;
+    font-family: Consolas, "Cascadia Mono", monospace;
+}
+
+.diagnostics pre {
+    margin: 0;
+    overflow: auto;
+    white-space: pre-wrap;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 0.85rem;
+    color: #f0d392;
+}
+
+@media (max-width: 980px) {
+    .workbench {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto auto;
+    }
+
+    .workbench-editor,
+    .workbench-state,
+    .memory-section,
+    .diagnostics {
+        grid-column: 1;
+        grid-row: auto;
+    }
+}

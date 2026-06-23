@@ -1,0 +1,60 @@
+.register-panel {
+    display: grid;
+    gap: 10px;
+}
+
+.register-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.register-grid label {
+    display: grid;
+    gap: 4px;
+    color: #aebaa6;
+    font-size: 0.76rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.hex-input,
+.cycle-input {
+    min-height: 32px;
+    border: 1px solid #4c5a47;
+    border-radius: 4px;
+    background: #101411;
+    color: #edf5e9;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    text-transform: uppercase;
+}
+
+.word-input,
+.byte-input,
+.cycle-input {
+    width: 100%;
+    padding: 0 8px;
+}
+
+.flag-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+}
+
+.flag-toggle {
+    display: grid;
+    justify-items: center;
+    gap: 3px;
+    padding: 6px 3px;
+    border: 1px solid #3b4738;
+    border-radius: 4px;
+    background: #222922;
+    color: #dce6d6;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 0.78rem;
+}
+
+.flag-toggle input {
+    margin: 0;
+}
