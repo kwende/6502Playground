@@ -211,6 +211,16 @@ Current messages include:
 
 This first slice uses the execution information already available from the wrapper. It does not yet stream every internal `m6502_tick()` pin state. A later tracing slice can extend the C wrapper to return per-cycle records for richer bus animation.
 
+## Static Asset Versioning
+
+The assembler, linker, CPU, Monaco, and visualizer bridges are loaded as versioned browser modules from the reusable workbench package. The version is centralized in:
+
+```text
+Playground.Workbench/WorkbenchStaticAssets.cs
+```
+
+When changing vendored JavaScript modules or module-adjacent data files, bump that version so deployed browsers do not keep using a stale `_content/Playground.Workbench/...` module URL. The wrapper modules pass the same version to their sibling JavaScript and WebAssembly assets.
+
 ## Build
 
 ```powershell
@@ -259,7 +269,7 @@ Defaults:
 - remote web root: `/var/www/ben-rush.net/6502/`
 - nginx mode: static `alias` with fallback to `/6502/index.html`
 
-The script publishes `Playground.Client`, stages the published `wwwroot` assets, rewrites the staged `<base href="/">` to `<base href="/6502/">`, uploads over ssh/rsync through WSL, syncs the remote web root, and reloads nginx when available.
+The script publishes `Playground.Client`, stages the published `wwwroot` assets, rewrites the staged `<base href="/">` to `<base href="/6502/">`, adds a deploy-specific cache-busting query string to the root CSS and Blazor boot script, uploads over ssh/rsync through WSL, syncs the remote web root, and reloads nginx when available.
 
 Deployment details live in:
 

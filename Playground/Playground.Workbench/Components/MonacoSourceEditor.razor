@@ -6,7 +6,7 @@
 </div>
 
 @code {
-    private const string ModulePath = "./_content/Playground.Workbench/toolchain/monaco/monaco-source-editor.js";
+    private static readonly string ModulePath = WorkbenchStaticAssets.WithVersion("./_content/Playground.Workbench/toolchain/monaco/monaco-source-editor.js");
 
     private ElementReference _container;
     private DotNetObjectReference<MonacoSourceEditor>? _dotNetReference;

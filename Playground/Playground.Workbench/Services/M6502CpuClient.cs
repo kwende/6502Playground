@@ -5,7 +5,7 @@ namespace Playground.Workbench.Services;
 
 public sealed class M6502CpuClient : IAsyncDisposable
 {
-    private const string ModulePath = "./_content/Playground.Workbench/toolchain/m6502/m6502-wrapper.js";
+    private static readonly string ModulePath = WorkbenchStaticAssets.WithVersion("./_content/Playground.Workbench/toolchain/m6502/m6502-wrapper.js");
 
     private readonly IJSRuntime _jsRuntime;
     private IJSObjectReference? _module;

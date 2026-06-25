@@ -115,7 +115,7 @@
     private const byte DefaultMemoryFill = 0x00;
     private const int RunInstructionBudget = 64;
     private const int MaxTicksPerInstruction = 64;
-    private const string VisualizerModulePath = "./_content/Playground.Workbench/toolchain/visualizer/cpu-visualizer-channel.js";
+    private static readonly string VisualizerModulePath = WorkbenchStaticAssets.WithVersion("./_content/Playground.Workbench/toolchain/visualizer/cpu-visualizer-channel.js");
 
     private readonly MemoryImage _memory = new(DefaultMemoryFill);
     private readonly Cpu6502State _registers = new();

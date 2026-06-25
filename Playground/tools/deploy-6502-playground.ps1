@@ -52,6 +52,16 @@ $siteStageRoot = Join-Path $stageRoot "site"
 $normalizedPublicPath = Normalize-PublicPath -Value $PublicPath
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $remoteStagingRoot = "$($RemoteStagingBase.TrimEnd('/'))/6502playground-$timestamp"
+$gitCommit = (& git -C $repoRoot rev-parse --short HEAD 2>$null)
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($gitCommit)) {
+	$gitCommit = "unknown"
+}
+
+$buildVersion = if ($gitCommit -eq "unknown") {
+	$timestamp
+} else {
+	"$timestamp-$gitCommit"
+}
 
 Assert-WslCommandAvailable -Distro $WslDistro -Name "rsync"
 Assert-WslCommandAvailable -Distro $WslDistro -Name "ssh"
@@ -85,16 +95,15 @@ if (-not (Test-Path $indexPath)) {
 
 $indexHtml = Get-Content -Raw -Path $indexPath
 $indexHtml = $indexHtml -replace '<base href="[^"]*"\s*/?>', "<base href=""$normalizedPublicPath"" />"
+$indexHtml = $indexHtml -replace 'href="app\.css(?:\?v=[^"]*)?"', "href=""app.css?v=$buildVersion"""
+$indexHtml = $indexHtml -replace 'href="Playground\.Client\.styles\.css(?:\?v=[^"]*)?"', "href=""Playground.Client.styles.css?v=$buildVersion"""
+$indexHtml = $indexHtml -replace 'src="_framework/blazor\.webassembly\.js(?:\?v=[^"]*)?"', "src=""_framework/blazor.webassembly.js?v=$buildVersion"""
 Set-Content -Path $indexPath -Value $indexHtml -Encoding utf8
-
-$gitCommit = (& git -C $repoRoot rev-parse --short HEAD 2>$null)
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($gitCommit)) {
-	$gitCommit = "unknown"
-}
 
 $manifest = @(
 	"BuiltAtUtc=$((Get-Date).ToUniversalTime().ToString("o"))",
 	"GitCommit=$gitCommit",
+	"BuildVersion=$buildVersion",
 	"Configuration=$Configuration",
 	"PublicPath=$normalizedPublicPath",
 	"RemoteWebRoot=$RemoteWebRoot"

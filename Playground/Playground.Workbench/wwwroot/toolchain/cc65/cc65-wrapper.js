@@ -1,18 +1,19 @@
-import createCa65 from "./ca65.js";
-import createLd65 from "./ld65.js";
-
 const defaultWorkDir = "/work";
 const defaultSourcePath = `${defaultWorkDir}/input.s`;
 const defaultObjectPath = `${defaultWorkDir}/input.o`;
 const defaultLinkerConfigPath = `${defaultWorkDir}/linker.cfg`;
 const defaultOutputPath = `${defaultWorkDir}/output.bin`;
 const defaultListingPath = `${defaultWorkDir}/input.lst`;
+const assetVersion = new URL(import.meta.url).searchParams.get("v") ?? "";
+
+let toolFactoriesPromise;
 
 export async function assembleAndLink(request = {}) {
     const diagnostics = createDiagnostics();
 
     try {
         const options = normalizeRequest(request);
+        const { createCa65, createLd65 } = await getToolFactories();
 
         const ca65 = await createCa65(makeModuleOptions(diagnostics.ca65.stdout, diagnostics.ca65.stderr));
         ensureDirectory(ca65.FS, options.workDir);
@@ -94,10 +95,31 @@ function normalizeRequest(request) {
 
 function makeModuleOptions(stdout, stderr) {
     return {
-        locateFile: (path) => new URL(`./${path}`, import.meta.url).href,
+        locateFile: (path) => withAssetVersion(`./${path}`),
         print: (text) => stdout.push(text),
         printErr: (text) => stderr.push(text),
     };
+}
+
+function getToolFactories() {
+    toolFactoriesPromise ??= Promise.all([
+        import(withAssetVersion("./ca65.js")),
+        import(withAssetVersion("./ld65.js")),
+    ]).then(([ca65Module, ld65Module]) => ({
+        createCa65: ca65Module.default,
+        createLd65: ld65Module.default,
+    }));
+
+    return toolFactoriesPromise;
+}
+
+function withAssetVersion(path) {
+    const url = new URL(path, import.meta.url);
+    if (assetVersion) {
+        url.searchParams.set("v", assetVersion);
+    }
+
+    return url.href;
 }
 
 function runTool(instance, name, args) {

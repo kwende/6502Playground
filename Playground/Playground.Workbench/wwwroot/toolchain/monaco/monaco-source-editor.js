@@ -1,14 +1,15 @@
-import { instructionDocs } from "./6502-instruction-docs.js";
-
 const monacoBasePath = "./_content/Playground.Workbench/lib/monaco/vs";
 const editors = new Map();
+const assetVersion = new URL(import.meta.url).searchParams.get("v") ?? "";
 
 let loadPromise;
+let instructionDocsPromise;
 let nextEditorId = 1;
 let asm6502HoverProviderRegistered = false;
+let instructionDocs = {};
 
 export async function createEditor(container, dotNetReference, value) {
-    await loadMonaco();
+    await Promise.all([loadMonaco(), loadInstructionDocs()]);
     registerAsm6502Language();
 
     const editor = monaco.editor.create(container, {
@@ -118,9 +119,14 @@ function loadMonaco() {
         }
 
         const loader = document.createElement("script");
-        loader.src = `${monacoBasePath}/loader.js`;
+        loader.src = withAssetVersion(`${monacoBasePath}/loader.js`, document.baseURI);
         loader.onload = () => {
-            globalThis.require.config({ paths: { vs: monacoBasePath } });
+            const requireConfig = { paths: { vs: monacoBasePath } };
+            if (assetVersion) {
+                requireConfig.urlArgs = `v=${encodeURIComponent(assetVersion)}`;
+            }
+
+            globalThis.require.config(requireConfig);
             globalThis.require(["vs/editor/editor.main"], resolve, reject);
         };
         loader.onerror = () => reject(new Error("Failed to load Monaco editor."));
@@ -128,6 +134,24 @@ function loadMonaco() {
     });
 
     return loadPromise;
+}
+
+function loadInstructionDocs() {
+    instructionDocsPromise ??= import(withAssetVersion("./6502-instruction-docs.js"))
+        .then((module) => {
+            instructionDocs = module.instructionDocs ?? {};
+        });
+
+    return instructionDocsPromise;
+}
+
+function withAssetVersion(path, baseUrl = import.meta.url) {
+    const url = new URL(path, baseUrl);
+    if (assetVersion) {
+        url.searchParams.set("v", assetVersion);
+    }
+
+    return url.href;
 }
 
 function registerAsm6502Language() {

@@ -5,7 +5,7 @@ namespace Playground.Workbench.Services;
 
 public sealed class Cc65AssemblerClient : IAsyncDisposable
 {
-    private const string ModulePath = "./_content/Playground.Workbench/toolchain/cc65/cc65-wrapper.js";
+    private static readonly string ModulePath = WorkbenchStaticAssets.WithVersion("./_content/Playground.Workbench/toolchain/cc65/cc65-wrapper.js");
 
     private readonly IJSRuntime _jsRuntime;
     private IJSObjectReference? _module;

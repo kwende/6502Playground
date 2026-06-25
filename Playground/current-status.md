@@ -1,6 +1,6 @@
 # Current Status
 
-Last updated: 2026-06-23
+Last updated: 2026-06-25
 Branch: `main`
 
 ## Mission
@@ -23,6 +23,7 @@ The app should let the user type assembly, assemble it in-browser, load it into 
 - `BRK` is currently a stop sentinel for Step/Run rather than a fully emulated interrupt workflow.
 - Deployment currently treats the app as a standalone Blazor WebAssembly static site behind nginx.
 - The first production path is `/6502/`, served from `/var/www/ben-rush.net/6502/` through an nginx `alias`.
+- Reusable workbench JavaScript module imports are versioned with cache-busting query strings so deployed browsers do not reuse stale `_content/Playground.Workbench/...` modules.
 
 ## Verified Repo Snapshot
 
@@ -106,3 +107,11 @@ Out of scope for this slice:
 - Registered a Monaco hover provider for `asm6502` instructions. Hover cards show operation, touched registers/flags/memory, addressing modes, opcodes, byte counts, cycles, notes, and a reference link.
 - Hover detection ignores mnemonics inside comments and label definitions.
 - Verified the instruction data module has all expected mnemonics, `dotnet build` succeeds, and browser smoke testing shows the `LDA - Load Accumulator` hover with no console warnings/errors.
+
+### 2026-06-25
+
+- Checked the deployed `/6502/` site after Monaco hover docs were added. The remote files and deploy manifest were current, which pointed to stale browser-cached JavaScript modules rather than a missing deploy.
+- Added centralized workbench static asset versioning through `WorkbenchStaticAssets`.
+- Versioned the Blazor `IJSRuntime import()` paths for Monaco, cc65, m6502, and the CPU visualizer channel.
+- Versioned Monaco's local instruction docs import and propagated the same asset version into cc65 and m6502 sibling JavaScript/WebAssembly loads so future nested asset changes do not keep serving old cached files.
+- Updated the static deploy script to stamp staged `index.html` with a build-specific query string on `app.css`, `Playground.Client.styles.css`, and `_framework/blazor.webassembly.js`, and to record `BuildVersion` in `deploy-manifest.txt`.

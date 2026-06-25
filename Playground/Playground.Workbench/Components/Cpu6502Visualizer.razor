@@ -151,7 +151,7 @@
 </main>
 
 @code {
-    private const string ModulePath = "./_content/Playground.Workbench/toolchain/visualizer/cpu-visualizer-channel.js";
+    private static readonly string ModulePath = WorkbenchStaticAssets.WithVersion("./_content/Playground.Workbench/toolchain/visualizer/cpu-visualizer-channel.js");
 
     private DotNetObjectReference<Cpu6502Visualizer>? _dotNetReference;
     private IJSObjectReference? _module;

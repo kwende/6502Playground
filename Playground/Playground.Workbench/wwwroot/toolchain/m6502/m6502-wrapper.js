@@ -1,9 +1,9 @@
-import createM6502 from "./m6502.js";
-
 const memorySize = 0x10000;
 const defaultMaxTicksPerInstruction = 64;
+const assetVersion = new URL(import.meta.url).searchParams.get("v") ?? "";
 
 let modulePromise;
+let moduleFactoryPromise;
 
 export async function stepInstruction(request = {}) {
     const module = await getModule();
@@ -26,11 +26,28 @@ export async function runInstructions(request = {}) {
 }
 
 async function getModule() {
+    const createM6502 = await getModuleFactory();
     modulePromise ??= createM6502({
-        locateFile: (path) => new URL(`./${path}`, import.meta.url).href,
+        locateFile: (path) => withAssetVersion(`./${path}`),
     });
 
     return modulePromise;
+}
+
+function getModuleFactory() {
+    moduleFactoryPromise ??= import(withAssetVersion("./m6502.js"))
+        .then((module) => module.default);
+
+    return moduleFactoryPromise;
+}
+
+function withAssetVersion(path) {
+    const url = new URL(path, import.meta.url);
+    if (assetVersion) {
+        url.searchParams.set("v", assetVersion);
+    }
+
+    return url.href;
 }
 
 function prepareCpu(module, request) {

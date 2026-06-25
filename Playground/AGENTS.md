@@ -37,6 +37,7 @@ The app should feel like a workshop bench, not a marketing site. Keep the first 
 - Update `README.md` when assembler, memory layout, CPU state, execution, or reuse assumptions change.
 - Keep components small enough that CV2 can adopt the workbench later without taking the whole playground shell.
 - Prefer clear state models and explicit byte/address formatting over clever UI code.
+- Keep reusable workbench browser modules on versioned import URLs. Blazor/RCL `_content` assets can linger in browser caches after deploys.
 
 ## Current Technical Direction
 
