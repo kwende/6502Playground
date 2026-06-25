@@ -42,6 +42,15 @@
     overflow: auto;
 }
 
+.memory-popout-placeholder {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    align-items: center;
+    min-height: 82px;
+    padding: 12px;
+}
+
 .diagnostics {
     grid-column: 2;
     grid-row: 2;

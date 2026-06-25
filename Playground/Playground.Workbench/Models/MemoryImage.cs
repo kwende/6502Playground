@@ -50,6 +50,32 @@ public sealed class MemoryImage
         _changedAddresses.Clear();
     }
 
+    public void Replace(IReadOnlyList<byte> bytes, IEnumerable<int>? changedAddresses = null)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+
+        if (bytes.Count != Size)
+        {
+            throw new ArgumentException($"Memory snapshots must contain exactly {Size} bytes.", nameof(bytes));
+        }
+
+        for (var index = 0; index < Size; index++)
+        {
+            _bytes[index] = bytes[index];
+        }
+
+        _changedAddresses.Clear();
+        if (changedAddresses is null)
+        {
+            return;
+        }
+
+        foreach (var address in changedAddresses)
+        {
+            _changedAddresses.Add(NormalizeAddress(address));
+        }
+    }
+
     public void ClearChangeMarks() => _changedAddresses.Clear();
 
     private static int NormalizeAddress(int address) => address & 0xFFFF;

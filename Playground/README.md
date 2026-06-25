@@ -25,6 +25,7 @@ The initial implementation provides the foundation:
 - cc65 `ca65`/`ld65` wasm bridge
 - editable 64K memory model
 - paged hex memory editor with a single focusable hex surface
+- optional memory editor pop-out route synchronized with the workbench
 - register panel scaffold
 - 6502 instruction stepping and run-to-`BRK` execution
 - source-line highlighting for the current PC after assemble/step/run
@@ -120,6 +121,14 @@ The first memory editor view shows one 256-byte page at a time:
 
 The current Blazor implementation renders byte tokens inside one focusable memory surface. Spacing and row structure are not editable, which keeps it closer to Visual Studio's memory window than a grid of individual text inputs. Edited and loaded bytes are marked visually, and the model is ready for later CPU write tracking, where bytes changed during a step can be highlighted for the current cycle or instruction.
 
+The memory editor can also pop out to:
+
+```text
+/memory-editor
+```
+
+The docked editor hides while the pop-out is active. The main workbench remains the source of truth for the 64K memory image, and the pop-out uses a `BroadcastChannel` bridge to receive full snapshots, page changes, byte writes, and clear-mark messages. Edits made in the pop-out flow back to the main workbench through the same channel.
+
 The memory import panel is intentionally generic. It accepts address/value pairs such as:
 
 ```text
@@ -213,7 +222,7 @@ This first slice uses the execution information already available from the wrapp
 
 ## Static Asset Versioning
 
-The assembler, linker, CPU, Monaco, and visualizer bridges are loaded as versioned browser modules from the reusable workbench package. The version is centralized in:
+The assembler, linker, CPU, Monaco, memory pop-out, and visualizer bridges are loaded as versioned browser modules from the reusable workbench package. The version is centralized in:
 
 ```text
 Playground.Workbench/WorkbenchStaticAssets.cs

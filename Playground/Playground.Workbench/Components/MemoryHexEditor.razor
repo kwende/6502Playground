@@ -3,6 +3,20 @@
         <div>
             <div class="memory-title-row">
                 <div class="panel-title">Memory</div>
+                @if (ShowPopoutButton)
+                {
+                    <button type="button"
+                            class="icon-button"
+                            title="Pop out memory editor"
+                            aria-label="Pop out memory editor"
+                            @onclick="PopoutRequested">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M9 5H5v14h14v-4" />
+                            <path d="M13 5h6v6" />
+                            <path d="M11 13 19 5" />
+                        </svg>
+                    </button>
+                }
                 <button type="button"
                         class="icon-button"
                         title="Import memory values"
@@ -122,6 +136,18 @@
     [Parameter]
     public int ProgramLength { get; set; }
 
+    [Parameter]
+    public bool ShowPopoutButton { get; set; }
+
+    [Parameter]
+    public EventCallback PopoutRequested { get; set; }
+
+    [Parameter]
+    public EventCallback<IReadOnlyList<MemoryEditorByteChange>> BytesChanged { get; set; }
+
+    [Parameter]
+    public EventCallback ChangeMarksCleared { get; set; }
+
     private int _selectedAddress = -1;
     private string _pendingNibbleText = string.Empty;
     private bool _isImportPanelOpen;
@@ -143,10 +169,10 @@
 
     private Task NextPage() => SetPageStart(PageStart + 0x100);
 
-    private Task ClearChangeMarks()
+    private async Task ClearChangeMarks()
     {
         Memory.ClearChangeMarks();
-        return Task.CompletedTask;
+        await ChangeMarksCleared.InvokeAsync();
     }
 
     private async Task OnPageInputChanged(ChangeEventArgs args)
@@ -189,6 +215,14 @@
         {
             Memory.SetByte(entry.Address, entry.Value);
         }
+
+        await NotifyBytesChangedAsync(entries
+            .Select(entry => new MemoryEditorByteChange
+            {
+                Address = entry.Address,
+                Value = entry.Value
+            })
+            .ToArray());
 
         _isImportPanelOpen = false;
         _importError = string.Empty;
@@ -238,7 +272,7 @@
                 break;
             case "Backspace":
             case "Delete":
-                ClearSelectedByte();
+                await ClearSelectedByteAsync();
                 break;
             case "Escape":
                 _pendingNibbleText = string.Empty;
@@ -262,6 +296,13 @@
         if (byte.TryParse(_pendingNibbleText + nibble, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var value))
         {
             Memory.SetByte(_selectedAddress, value);
+            await NotifyBytesChangedAsync([
+                new MemoryEditorByteChange
+                {
+                    Address = _selectedAddress,
+                    Value = value
+                }
+            ]);
         }
 
         _pendingNibbleText = string.Empty;
@@ -293,13 +334,27 @@
         _pendingNibbleText = string.Empty;
     }
 
-    private void ClearSelectedByte()
+    private async Task ClearSelectedByteAsync()
     {
         if (_selectedAddress >= 0)
         {
             Memory.SetByte(_selectedAddress, 0x00);
             _pendingNibbleText = string.Empty;
+            await NotifyBytesChangedAsync([
+                new MemoryEditorByteChange
+                {
+                    Address = _selectedAddress,
+                    Value = 0x00
+                }
+            ]);
         }
+    }
+
+    private Task NotifyBytesChangedAsync(IReadOnlyList<MemoryEditorByteChange> changes)
+    {
+        return changes.Count == 0
+            ? Task.CompletedTask
+            : BytesChanged.InvokeAsync(changes);
     }
 
     private string GetByteClass(int address)

@@ -94,11 +94,28 @@
     </section>
 
     <section class="memory-section" aria-label="Memory editor">
-        <MemoryHexEditor Memory="_memory"
-                         PageStart="_memoryPageStart"
-                         PageStartChanged="OnMemoryPageStartChanged"
-                         ProgramStart="_programStart"
-                         ProgramLength="_programLength" />
+        @if (_isMemoryPopoutOpen)
+        {
+            <div class="memory-popout-placeholder">
+                <div>
+                    <div class="panel-title">Memory</div>
+                    <div class="subtle">Memory editor is open in a pop-out window.</div>
+                </div>
+                <button type="button" @onclick="DockMemoryEditorAsync">Dock</button>
+            </div>
+        }
+        else
+        {
+            <MemoryHexEditor Memory="_memory"
+                             PageStart="_memoryPageStart"
+                             PageStartChanged="OnMemoryPageStartChanged"
+                             ProgramStart="_programStart"
+                             ProgramLength="_programLength"
+                             ShowPopoutButton="true"
+                             PopoutRequested="OpenMemoryEditorAsync"
+                             BytesChanged="OnMemoryBytesChangedAsync"
+                             ChangeMarksCleared="OnMemoryChangeMarksClearedAsync" />
+        }
     </section>
 
     @if (!string.IsNullOrWhiteSpace(_diagnostics))
@@ -116,6 +133,7 @@
     private const int RunInstructionBudget = 64;
     private const int MaxTicksPerInstruction = 64;
     private static readonly string VisualizerModulePath = WorkbenchStaticAssets.WithVersion("./_content/Playground.Workbench/toolchain/visualizer/cpu-visualizer-channel.js");
+    private static readonly string MemoryEditorModulePath = WorkbenchStaticAssets.WithVersion("./_content/Playground.Workbench/toolchain/memory/memory-editor-channel.js");
 
     private readonly MemoryImage _memory = new(DefaultMemoryFill);
     private readonly Cpu6502State _registers = new();
@@ -124,6 +142,9 @@
     private Cc65AssemblerClient? _assembler;
     private M6502CpuClient? _cpu;
     private IJSObjectReference? _visualizerModule;
+    private IJSObjectReference? _memoryEditorModule;
+    private DotNetObjectReference<Cpu6502Workbench>? _memoryEditorDotNetReference;
+    private int? _memoryEditorSubscriptionId;
     private ushort _loadAddress = DefaultLoadAddress;
     private int _memoryPageStart = DefaultLoadAddress;
     private ushort? _programStart;
@@ -137,6 +158,8 @@
     private string _diagnostics = string.Empty;
     private int? _activeSourceLineNumber;
     private int _visualizerSequence;
+    private int _memoryEditorSequence;
+    private bool _isMemoryPopoutOpen;
 
     private string _source = """
         .segment "CODE"
@@ -205,6 +228,7 @@
             _lastExecutionSummary = "-";
             UpdateActiveSourceLine();
             await PublishVisualizerStateAsync("Load", "Program loaded", _loadAddress, bytes.FirstOrDefault(), sync: true);
+            await PublishMemoryEditorStateAsync();
         }
         catch (Exception ex)
         {
@@ -237,6 +261,7 @@
     {
         ResetMemoryAndRegisters();
         await PublishVisualizerStateAsync("Reset", "Memory and registers reset", _registers.ProgramCounter, _memory.GetByte(_registers.ProgramCounter), sync: true);
+        await PublishMemoryEditorStateAsync();
     }
 
     private async Task StepInstructionAsync()
@@ -255,6 +280,7 @@
         {
             var result = await _cpu.StepInstructionAsync(BuildExecutionRequest(1));
             ApplyExecutionResult(result);
+            await PublishMemoryEditorByteChangesAsync(ToMemoryEditorChanges(result.MemoryChanges));
             await PublishVisualizerStateAsync("Step", $"Stepped ${FormatWord(instructionAddress)} opcode ${FormatByte(opcode)}", instructionAddress, opcode, result.MemoryChanges, opcode);
         }
         catch (Exception ex)
@@ -286,6 +312,7 @@
                 var opcode = _memory.GetByte(instructionAddress);
                 var result = await _cpu.RunInstructionsAsync(BuildExecutionRequest(RunInstructionBudget));
                 ApplyExecutionResult(result);
+                await PublishMemoryEditorByteChangesAsync(ToMemoryEditorChanges(result.MemoryChanges));
                 await PublishVisualizerStateAsync("Run", $"Ran from ${FormatWord(instructionAddress)} opcode ${FormatByte(opcode)}", instructionAddress, opcode, result.MemoryChanges, opcode);
 
                 if (result.Status != Cpu6502ExecutionStatus.Ok || result.InstructionsExecuted == 0)
@@ -386,10 +413,107 @@
         }
     }
 
-    private Task OnMemoryPageStartChanged(int pageStart)
+    private async Task OnMemoryPageStartChanged(int pageStart)
     {
         _memoryPageStart = NormalizePageStart(pageStart);
-        return Task.CompletedTask;
+        await PublishMemoryEditorPageStartAsync();
+    }
+
+    private async Task OnMemoryBytesChangedAsync(IReadOnlyList<MemoryEditorByteChange> changes)
+    {
+        await PublishMemoryEditorByteChangesAsync(changes);
+    }
+
+    private async Task OnMemoryChangeMarksClearedAsync()
+    {
+        await PublishMemoryEditorMessageAsync(new MemoryEditorMessage
+        {
+            Kind = "clear-change-marks",
+            PageStart = _memoryPageStart,
+            ProgramStart = _programStart,
+            ProgramLength = _programLength
+        });
+    }
+
+    private async Task OpenMemoryEditorAsync()
+    {
+        try
+        {
+            var module = await GetMemoryEditorModuleAsync();
+            var opened = await module.InvokeAsync<bool>("openMemoryEditor", BuildMemoryEditorStateMessage());
+
+            if (opened)
+            {
+                _isMemoryPopoutOpen = true;
+                return;
+            }
+
+            _executionStatus = "Memory pop-out blocked";
+        }
+        catch (Exception ex)
+        {
+            _executionStatus = "Memory pop-out error";
+            _lastExecutionSummary = ex.Message;
+        }
+    }
+
+    private async Task DockMemoryEditorAsync()
+    {
+        _isMemoryPopoutOpen = false;
+
+        if (_memoryEditorModule is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _memoryEditorModule.InvokeVoidAsync("closeMemoryEditor");
+        }
+        catch
+        {
+            // The popup is optional; docking should still restore the in-page editor if the window is already gone.
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnMemoryEditorMessage(MemoryEditorMessage message)
+    {
+        var kind = message.Kind?.ToLowerInvariant() ?? string.Empty;
+
+        switch (kind)
+        {
+            case "popup-ready":
+                _isMemoryPopoutOpen = true;
+                await PublishMemoryEditorStateAsync(force: true);
+                break;
+
+            case "request-state":
+                await PublishMemoryEditorStateAsync(force: true);
+                break;
+
+            case "closed":
+                _isMemoryPopoutOpen = false;
+                break;
+
+            case "bytes-changed":
+                foreach (var change in message.ByteChanges)
+                {
+                    _memory.SetByte(change.Address, change.Value);
+                }
+
+                break;
+
+            case "clear-change-marks":
+                _memory.ClearChangeMarks();
+                break;
+
+            case "page-start-changed":
+                _memoryPageStart = NormalizePageStart(message.PageStart);
+                break;
+        }
+
+        StateHasChanged();
     }
 
     private async Task OpenVisualizerAsync()
@@ -443,6 +567,107 @@
     {
         _visualizerModule ??= await JsRuntime.InvokeAsync<IJSObjectReference>("import", VisualizerModulePath);
         return _visualizerModule;
+    }
+
+    private async ValueTask<IJSObjectReference> GetMemoryEditorModuleAsync()
+    {
+        if (_memoryEditorModule is not null)
+        {
+            return _memoryEditorModule;
+        }
+
+        _memoryEditorModule = await JsRuntime.InvokeAsync<IJSObjectReference>("import", MemoryEditorModulePath);
+        _memoryEditorDotNetReference = DotNetObjectReference.Create(this);
+        _memoryEditorSubscriptionId = await _memoryEditorModule.InvokeAsync<int>("subscribe", _memoryEditorDotNetReference);
+        return _memoryEditorModule;
+    }
+
+    private async Task PublishMemoryEditorStateAsync(bool force = false)
+    {
+        if (_memoryEditorModule is null || (!_isMemoryPopoutOpen && !force))
+        {
+            return;
+        }
+
+        await PublishMemoryEditorMessageAsync(BuildMemoryEditorStateMessage());
+    }
+
+    private async Task PublishMemoryEditorByteChangesAsync(IReadOnlyList<MemoryEditorByteChange> changes)
+    {
+        if (changes.Count == 0 || _memoryEditorModule is null || !_isMemoryPopoutOpen)
+        {
+            return;
+        }
+
+        await PublishMemoryEditorMessageAsync(new MemoryEditorMessage
+        {
+            Kind = "bytes-changed",
+            Sequence = ++_memoryEditorSequence,
+            PageStart = _memoryPageStart,
+            ProgramStart = _programStart,
+            ProgramLength = _programLength,
+            ByteChanges = [.. changes]
+        });
+    }
+
+    private async Task PublishMemoryEditorPageStartAsync()
+    {
+        if (_memoryEditorModule is null || !_isMemoryPopoutOpen)
+        {
+            return;
+        }
+
+        await PublishMemoryEditorMessageAsync(new MemoryEditorMessage
+        {
+            Kind = "page-start-changed",
+            Sequence = ++_memoryEditorSequence,
+            PageStart = _memoryPageStart,
+            ProgramStart = _programStart,
+            ProgramLength = _programLength
+        });
+    }
+
+    private async Task PublishMemoryEditorMessageAsync(MemoryEditorMessage message)
+    {
+        if (_memoryEditorModule is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _memoryEditorModule.InvokeVoidAsync("postMemoryEditorMessage", message);
+        }
+        catch
+        {
+            _isMemoryPopoutOpen = false;
+        }
+    }
+
+    private MemoryEditorMessage BuildMemoryEditorStateMessage()
+    {
+        var bytes = _memory.ToArray();
+        return new MemoryEditorMessage
+        {
+            Kind = "state",
+            Sequence = ++_memoryEditorSequence,
+            PageStart = _memoryPageStart,
+            ProgramStart = _programStart,
+            ProgramLength = _programLength,
+            MemoryBytes = bytes.Select(value => (int)value).ToArray(),
+            ChangedAddresses = _memory.ChangedAddresses.ToArray()
+        };
+    }
+
+    private static MemoryEditorByteChange[] ToMemoryEditorChanges(IEnumerable<Cpu6502MemoryChange> changes)
+    {
+        return changes
+            .Select(change => new MemoryEditorByteChange
+            {
+                Address = change.Address,
+                Value = change.Value
+            })
+            .ToArray();
     }
 
     private CpuVisualizerMessage BuildVisualizerMessage(
@@ -695,5 +920,17 @@
         {
             await _visualizerModule.DisposeAsync();
         }
+
+        if (_memoryEditorModule is not null)
+        {
+            if (_memoryEditorSubscriptionId is not null)
+            {
+                await _memoryEditorModule.InvokeVoidAsync("unsubscribe", _memoryEditorSubscriptionId.Value);
+            }
+
+            await _memoryEditorModule.DisposeAsync();
+        }
+
+        _memoryEditorDotNetReference?.Dispose();
     }
 }

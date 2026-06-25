@@ -1,0 +1,170 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JsRuntime
+
+<main class="memory-popout-shell">
+    @if (!_hasState)
+    {
+        <div class="memory-popout-waiting">Waiting for workbench memory...</div>
+    }
+
+    <MemoryHexEditor Memory="_memory"
+                     PageStart="_pageStart"
+                     PageStartChanged="OnPageStartChanged"
+                     ProgramStart="_programStart"
+                     ProgramLength="_programLength"
+                     BytesChanged="OnBytesChangedAsync"
+                     ChangeMarksCleared="OnChangeMarksClearedAsync" />
+</main>
+
+@code {
+    private static readonly string ModulePath = WorkbenchStaticAssets.WithVersion("./_content/Playground.Workbench/toolchain/memory/memory-editor-channel.js");
+
+    private readonly MemoryImage _memory = new();
+
+    private DotNetObjectReference<MemoryPopoutEditor>? _dotNetReference;
+    private IJSObjectReference? _module;
+    private int? _subscriptionId;
+    private int _pageStart = 0x0600;
+    private ushort? _programStart;
+    private int _programLength;
+    private bool _hasState;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        _module = await JsRuntime.InvokeAsync<IJSObjectReference>("import", ModulePath);
+        _dotNetReference = DotNetObjectReference.Create(this);
+        _subscriptionId = await _module.InvokeAsync<int>("subscribe", _dotNetReference);
+        await _module.InvokeVoidAsync("registerCloseAnnouncement");
+        await PostMessageAsync(new MemoryEditorMessage { Kind = "popup-ready" });
+        await PostMessageAsync(new MemoryEditorMessage { Kind = "request-state" });
+    }
+
+    [JSInvokable]
+    public Task OnMemoryEditorMessage(MemoryEditorMessage message)
+    {
+        var kind = message.Kind?.ToLowerInvariant() ?? string.Empty;
+
+        switch (kind)
+        {
+            case "state":
+                ApplyMemoryState(message);
+                break;
+
+            case "bytes-changed":
+                ApplyByteChanges(message.ByteChanges);
+                ApplyMetadata(message);
+                break;
+
+            case "clear-change-marks":
+                _memory.ClearChangeMarks();
+                break;
+
+            case "page-start-changed":
+                _pageStart = NormalizePageStart(message.PageStart);
+                break;
+        }
+
+        _hasState = _hasState || kind == "state";
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private async Task OnBytesChangedAsync(IReadOnlyList<MemoryEditorByteChange> changes)
+    {
+        await PostMessageAsync(new MemoryEditorMessage
+        {
+            Kind = "bytes-changed",
+            PageStart = _pageStart,
+            ProgramStart = _programStart,
+            ProgramLength = _programLength,
+            ByteChanges = [.. changes]
+        });
+    }
+
+    private async Task OnPageStartChanged(int pageStart)
+    {
+        _pageStart = NormalizePageStart(pageStart);
+        await PostMessageAsync(new MemoryEditorMessage
+        {
+            Kind = "page-start-changed",
+            PageStart = _pageStart,
+            ProgramStart = _programStart,
+            ProgramLength = _programLength
+        });
+    }
+
+    private async Task OnChangeMarksClearedAsync()
+    {
+        await PostMessageAsync(new MemoryEditorMessage
+        {
+            Kind = "clear-change-marks",
+            PageStart = _pageStart,
+            ProgramStart = _programStart,
+            ProgramLength = _programLength
+        });
+    }
+
+    private void ApplyMemoryState(MemoryEditorMessage message)
+    {
+        if (message.MemoryBytes.Length == MemoryImage.Size)
+        {
+            var bytes = new byte[MemoryImage.Size];
+            for (var index = 0; index < bytes.Length; index++)
+            {
+                bytes[index] = (byte)(message.MemoryBytes[index] & 0xFF);
+            }
+
+            _memory.Replace(bytes, message.ChangedAddresses);
+        }
+
+        ApplyMetadata(message);
+    }
+
+    private void ApplyByteChanges(IEnumerable<MemoryEditorByteChange> changes)
+    {
+        foreach (var change in changes)
+        {
+            _memory.SetByte(change.Address, change.Value);
+        }
+    }
+
+    private void ApplyMetadata(MemoryEditorMessage message)
+    {
+        _pageStart = NormalizePageStart(message.PageStart);
+        _programStart = message.ProgramStart;
+        _programLength = message.ProgramLength;
+    }
+
+    private async Task PostMessageAsync(MemoryEditorMessage message)
+    {
+        if (_module is null)
+        {
+            return;
+        }
+
+        await _module.InvokeVoidAsync("postMemoryEditorMessage", message);
+    }
+
+    private static int NormalizePageStart(int address) => address & 0xFF00;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            if (_subscriptionId is not null)
+            {
+                await _module.InvokeVoidAsync("unsubscribe", _subscriptionId.Value);
+            }
+
+            await PostMessageAsync(new MemoryEditorMessage { Kind = "closed" });
+            await _module.DisposeAsync();
+        }
+
+        _dotNetReference?.Dispose();
+    }
+}

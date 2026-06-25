@@ -15,6 +15,7 @@ The app should let the user type assembly, assemble it in-browser, load it into 
 - Memory reset fill is `$00`.
 - The source editor is now Monaco with a lightweight 6502 tokenizer, current-PC source-line decoration, and local 6502 instruction hover docs.
 - The CPU visualizer is optional and hosted in a popup route at `/cpu-visualizer`.
+- The memory editor can optionally pop out to `/memory-editor`, synchronized by `BroadcastChannel`.
 - The first assembler path uses the user's wasm-ready cc65 build from `C:\repos\cc65-wasm`.
 - `Home.razor` should only host the reusable workbench component.
 - The emulator core is floooh/chips `m6502.h`, vendored from upstream commit `9371bfcb8478aec05ad10a1293206363373c1489`.
@@ -47,7 +48,7 @@ Target:
 6. instruction stepping and run-to-`BRK`
 7. Monaco source editor with ca65-listing-based line mapping
 
-Status: implemented and browser-verified. The memory editor is currently paged by 256-byte blocks, with one focusable hex surface per page.
+Status: implemented and browser-verified. The memory editor is currently paged by 256-byte blocks, with one focusable hex surface per page and an optional pop-out route.
 
 Out of scope for this slice:
 
@@ -115,3 +116,7 @@ Out of scope for this slice:
 - Versioned the Blazor `IJSRuntime import()` paths for Monaco, cc65, m6502, and the CPU visualizer channel.
 - Versioned Monaco's local instruction docs import and propagated the same asset version into cc65 and m6502 sibling JavaScript/WebAssembly loads so future nested asset changes do not keep serving old cached files.
 - Updated the static deploy script to stamp staged `index.html` with a build-specific query string on `app.css`, `Playground.Client.styles.css`, and `_framework/blazor.webassembly.js`, and to record `BuildVersion` in `deploy-manifest.txt`.
+- Added a pop-out icon next to the Memory title. Opening it hides the docked editor and opens the reusable memory editor at `/memory-editor`.
+- Added `Playground.Workbench/wwwroot/toolchain/memory/memory-editor-channel.js`, a `BroadcastChannel` bridge for full memory snapshots, byte edits, page changes, clear-mark events, and popup close/dock messages.
+- Added `MemoryPopoutEditor`, memory editor message models, and mutation callbacks on `MemoryHexEditor` so pop-out edits flow back to the main workbench while assemble/load/reset/CPU writes flow out to the popup.
+- Verified `dotnet build`, the memory channel JavaScript syntax, the main page's pop-out/import buttons, and the standalone `/memory-editor` route. The in-app browser treats `window.open` as same-tab navigation, so full two-window popup behavior still needs a normal browser pass after deploy/local run.
