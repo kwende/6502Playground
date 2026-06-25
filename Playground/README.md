@@ -67,8 +67,17 @@ The current editor bridge:
 - keeps source text in the reusable workbench component
 - applies a line-number/glyph decoration for the source line mapped to the current PC
 - updates that decoration after assemble/load, Step, and Run
+- shows hover documentation for the 56 documented NMOS 6502 mnemonics
 
 Source-line mapping comes from the `ca65` listing file. The wrapper parses listing offsets and adds the current load address so `$0600`, `$0602`, and `$0605` can map back to the default `lda`, `sta`, and `brk` lines.
+
+Instruction hover data is vendored locally in:
+
+```text
+Playground.Workbench/wwwroot/toolchain/monaco/6502-instruction-docs.js
+```
+
+The data is a compact local summary, cross-checked against Obelisk-style 6502 references. Hover cards show the mnemonic name, operation, touched registers/flags/memory, addressing modes, opcodes, byte counts, cycles, and a reference link. This keeps the playground useful offline and avoids needing to search for `ADC`, `BIT`, or branch semantics while working through a lesson.
 
 ## Default Assembly Layout
 

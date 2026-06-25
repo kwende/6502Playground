@@ -13,7 +13,7 @@ The app should let the user type assembly, assemble it in-browser, load it into 
 
 - The first default load address is `$0600`.
 - Memory reset fill is `$00`.
-- The source editor is now Monaco with a lightweight 6502 tokenizer and current-PC source-line decoration.
+- The source editor is now Monaco with a lightweight 6502 tokenizer, current-PC source-line decoration, and local 6502 instruction hover docs.
 - The CPU visualizer is optional and hosted in a popup route at `/cpu-visualizer`.
 - The first assembler path uses the user's wasm-ready cc65 build from `C:\repos\cc65-wasm`.
 - `Home.razor` should only host the reusable workbench component.
@@ -99,3 +99,10 @@ Out of scope for this slice:
 - Converted the app from the accidental ASP.NET Core-hosted Blazor Web App shape to a standalone Blazor WebAssembly app.
 - Moved the app shell, routes, layout, and static `index.html`/`app.css` into `Playground.Client`; removed the server host project from `Playground.slnx`.
 - Replaced the service-based deploy with a static deploy: publish `Playground.Client`, stage published `wwwroot`, rewrite `<base href="/">` to `/6502/`, rsync to `/var/www/ben-rush.net/6502/`, and use an nginx `alias` fallback.
+
+### 2026-06-24
+
+- Added vendored 6502 instruction documentation for all 56 documented NMOS 6502 mnemonics under `Playground.Workbench/wwwroot/toolchain/monaco/6502-instruction-docs.js`.
+- Registered a Monaco hover provider for `asm6502` instructions. Hover cards show operation, touched registers/flags/memory, addressing modes, opcodes, byte counts, cycles, notes, and a reference link.
+- Hover detection ignores mnemonics inside comments and label definitions.
+- Verified the instruction data module has all expected mnemonics, `dotnet build` succeeds, and browser smoke testing shows the `LDA - Load Accumulator` hover with no console warnings/errors.
